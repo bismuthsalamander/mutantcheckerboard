@@ -6,76 +6,6 @@ import (
 	"strings"
 )
 
-type Coord struct {
-	X uint8
-	Y uint8
-}
-
-func (c Coord) String() string {
-	return fmt.Sprintf("(%d,%d)", c.X, c.Y)
-}
-
-type Delta struct {
-	X int8
-	Y int8
-}
-
-func (d Delta) String() string {
-	if d == LEFT {
-		return "LEFT"
-	} else if d == RIGHT {
-		return "RIGHT"
-	} else if d == DOWN {
-		return "DOWN"
-	} else if d == UP {
-		return "UP"
-	}
-	return fmt.Sprintf("(%d,%d)", d.X, d.Y)
-}
-
-func (d Delta) TurnCW() Delta {
-	return Delta{
-		X: d.Y * -1,
-		Y: d.X,
-	}
-}
-
-func (d Delta) TurnCCW() Delta {
-	return Delta{
-		X: d.Y,
-		Y: d.X * -1,
-	}
-}
-
-func (d Delta) Reverse() Delta {
-	return d.Times(-1)
-}
-
-func (d Delta) Times(n int8) Delta {
-	return Delta{d.X * n, d.Y * n}
-}
-
-var LEFT = Delta{-1, 0}
-var RIGHT = Delta{1, 0}
-var UP = Delta{0, -1}
-var DOWN = Delta{0, 1}
-
-var DIRECTIONS = []Delta{LEFT, RIGHT, UP, DOWN}
-
-func (c Coord) Plus(d Delta) Coord {
-	return Coord{
-		X: uint8(int8(c.X) + d.X),
-		Y: uint8(int8(c.Y) + d.Y),
-	}
-}
-
-func MkCoord(x, y int) Coord {
-	return Coord{
-		X: uint8(x),
-		Y: uint8(y),
-	}
-}
-
 type BinBoard interface {
 	MarkPainted(Coord) (bool, error)
 	MarkClear(Coord) (bool, error)
@@ -86,49 +16,19 @@ type BinBoard interface {
 	IsComplete() bool
 	IsSolved() bool
 	Init(string)
+	InitDone() bool
 	PostMark(Coord, Cell) bool
-}
-
-type Cell int8
-
-const UNKNOWN = 0
-const PAINTED = 1
-const CLEAR = 2
-
-func (c Cell) Ch() rune {
-	if c == PAINTED {
-		return 'X'
-	} else if c == CLEAR {
-		return '.'
-	}
-	return ' '
-}
-
-func (c Cell) String() string {
-	return string(c.Ch())
-}
-
-func NumToCh(n uint8) rune {
-	if n < 10 {
-		return rune(uint8('0') + n)
-	} else if n <= 35 {
-		return rune(uint8('a') + (n - 10))
-	}
-	return '?'
+	SetDirty()
+	ClearDirty()
+	IsDirty() bool
 }
 
 type RectBoard struct {
-	W    uint8
-	H    uint8
-	Grid [][]Cell
-}
-
-func MakeGrid(w, h uint8) [][]Cell {
-	g := make([][]Cell, 0, h)
-	for i := 0; i < int(h); i++ {
-		g = append(g, make([]Cell, w))
-	}
-	return g
+	W      uint8
+	H      uint8
+	Grid   [][]Cell
+	Dirty  bool
+	Inited bool
 }
 
 func RectBoardFromLines(input []string) *RectBoard {
@@ -141,18 +41,47 @@ func RectBoardFromLines(input []string) *RectBoard {
 	}
 }
 
+func (b *RectBoard) TopLeft() Coord {
+	return Coord{0, 0}
+}
+
+func (b *RectBoard) Next(c Coord) Coord {
+	c.X++
+	if c.X == b.W {
+		c.X = 0
+		c.Y++
+	}
+	return c
+}
+
+func (b *RectBoard) InitDone() bool {
+	return b.Inited
+}
+
+func (b *RectBoard) SetDirty() {
+	b.Dirty = true
+}
+
+func (b *RectBoard) ClearDirty() {
+	b.Dirty = false
+}
+
+func (b *RectBoard) IsDirty() bool {
+	return b.Dirty
+}
+
 func (b *RectBoard) Get(c Coord) Cell {
 	return b.Grid[c.Y][c.X]
 }
 
 func (b *RectBoard) IsPainted(c Coord) bool {
-	return b.Get(c) == PAINTED
+	return b.IsValid(c) && b.Get(c) == PAINTED
 }
 func (b *RectBoard) IsClear(c Coord) bool {
-	return b.Get(c) == CLEAR
+	return b.IsValid(c) && b.Get(c) == CLEAR
 }
 func (b *RectBoard) IsUnknown(c Coord) bool {
-	return b.Get(c) == UNKNOWN
+	return b.IsValid(c) && b.Get(c) == UNKNOWN
 }
 func (b *RectBoard) IsValid(c Coord) bool {
 	return c.X < b.W && c.Y < b.H
@@ -171,7 +100,6 @@ func (b *RectBoard) IsSolved() bool {
 	return false
 }
 
-// func (b *RectBoard) PostMark(_ Coord, _ Cell) {}
 func (b *RectBoard) Set(c Coord, v Cell) (bool, error) {
 	if !b.IsValid(c) {
 		return false, fmt.Errorf("coordinate (%d,%d) not valid on board of size (%d,%d)", c.X, c.Y, b.W, b.H)
@@ -186,11 +114,71 @@ func (b *RectBoard) Set(c Coord, v Cell) (bool, error) {
 	return true, nil
 }
 
+func (b *RangeBoard) CrossAt(c Coord) *Cross {
+	return b.Crosses[c.Y][c.X]
+}
+
+func (b *RangeBoard) IsSolved() (bool, error) {
+	for y, row := range b.Grid {
+		for x, cell := range row {
+			if cell == UNKNOWN {
+				return false, fmt.Errorf("cell %s is unknown", Coord{uint8(x), uint8(y)})
+			}
+		}
+	}
+	for _, cross := range b.AllCrosses {
+		ct := uint8(1)
+		for _, dir := range DIRECTIONS {
+			coord := cross.Root.Plus(dir)
+			for b.IsValid(coord) && b.IsClear(coord) {
+				ct++
+				coord = coord.Plus(dir)
+			}
+		}
+		if ct != cross.Size {
+			return false, fmt.Errorf("cross at %s needs %d; has %d", cross.Root, cross.Size, ct)
+		}
+	}
+	reached := make(map[Coord]struct{})
+	var c Coord
+	for y, row := range b.Grid {
+		for x, cell := range row {
+			if cell == CLEAR {
+				c = Coord{X: uint8(x), Y: uint8(y)}
+			}
+		}
+	}
+	frontier := make([]Coord, 0, 1)
+	frontier = append(frontier, c)
+	for len(frontier) > 0 {
+		touch := frontier[0]
+		reached[touch] = struct{}{}
+		frontier = frontier[1:]
+		for _, dir := range DIRECTIONS {
+			new := touch.Plus(dir)
+			if _, ok := reached[new]; !ok && b.IsValid(new) {
+				frontier = append(frontier, new)
+			}
+		}
+	}
+	for y, row := range b.Grid {
+		for x, cell := range row {
+			if _, ok := reached[Coord{uint8(x), uint8(y)}]; cell == CLEAR && !ok {
+				return false, fmt.Errorf("cannot read clear cell (%d,%d) from %s", x, y, c)
+			}
+		}
+	}
+	return true, nil
+}
+
 func (b *RangeBoard) Mark(c Coord, v Cell) (bool, error) {
 	res, err := b.Set(c, v)
 	if res == false {
 		return res, err
 	}
+	fmt.Printf("MARKING %s as %s\n", c, v)
+	// fmt.Printf("%s\n", b)
+	b.SetDirty()
 	b.PostMark(c, v)
 	return res, err
 }
@@ -218,7 +206,15 @@ type Cross struct {
 }
 
 func (c *Cross) String() string {
-	return string(NumToCh(c.Size))
+	return fmt.Sprintf("%d", c.Size)
+}
+
+func (c *Cross) StringVerbose() string {
+	out := fmt.Sprintf("Cross at %s sz %d", c.Root, c.Size)
+	for dir, wing := range c.Wings {
+		out += fmt.Sprintf("\tWing %s [%d-%d] capped %s\n", dir, wing.Min, wing.Max, wing.IsCapped)
+	}
+	return out[:len(out)-1]
 }
 
 type RangeBoard struct {
@@ -282,10 +278,7 @@ func (b *RangeBoard) StringVerbose() string {
 			if cross == nil {
 				continue
 			}
-			out += fmt.Sprintf("Cross at %s sz %d\n", cross.Root, cross.Size)
-			for dir, wing := range cross.Wings {
-				out += fmt.Sprintf("\tWing %s [%d-%d] %v\n", dir, wing.Min, wing.Max, wing.IsCapped)
-			}
+			out += fmt.Sprintf("%s\n", cross.StringVerbose())
 		}
 	}
 	return out
@@ -295,7 +288,7 @@ func (b *RangeBoard) PostMark(c Coord, v Cell) {
 	/**
 	If painted:
 		mark adj clear
-		limit wing maxes along all four axes (THIS CAN STOP AFTER ACCOUNTING ANOTHER PAINTED CELL)
+		limit wing maxes along all four axes (THIS CAN STOP AFTER ENCOUNTERING ANOTHER PAINTED CELL)
 	If clear:
 		increase minimum size along all four axes until we meet a non-clear cell
 
@@ -306,20 +299,27 @@ func (b *RangeBoard) PostMark(c Coord, v Cell) {
 	traverse four axes until we find a painted cell
 	for each cross found, update its wing sizes?
 	*/
-	/**
-	 */
 	// Clear adjacent cells to paint
 	if v == PAINTED {
 		for _, dir := range DIRECTIONS {
 			new := c.Plus(dir)
 			if b.IsValid(new) {
-				//TODO: are we gonna cause a problem? calling Mark multiple times? cascade or something?
-				//TODO: alternatively, cascade a "dirty" mark to affected crosses, then update the dirty ones?
 				b.MarkClear(new)
 			}
 		}
 	}
-	// Skipping the cross updates for now; a normal check will find these (albeit less efficiently)
+	if !b.InitDone() {
+		return
+	}
+	//TODO: alternatively, cascade a "dirty" mark to affected crosses, then update the dirty ones?
+	//helps efficiency of batch updates?
+	for _, dir := range DIRECTIONS {
+		coord := c.Plus(dir)
+		for b.IsValid(coord) && !b.IsPainted(coord) {
+			b.UpdateWingRange(b.CrossAt(coord), dir.Reverse())
+			coord = coord.Plus(dir)
+		}
+	}
 }
 
 func (b *RangeBoard) CheckAllCaps(c *Cross) {
@@ -341,7 +341,7 @@ func (c *Cross) MarkWingCapped(w *Wing) {
 }
 
 func (b *RangeBoard) FinishCross(cross *Cross) {
-	fmt.Printf("Finishing cross at %s\n", cross.Root)
+	// fmt.Printf("Finishing cross at %s\n", cross.Root)
 	for _, wing := range cross.Wings {
 		wing.Max = wing.Min
 		b.FinishWing(cross, wing)
@@ -349,7 +349,6 @@ func (b *RangeBoard) FinishCross(cross *Cross) {
 }
 
 func (b *RangeBoard) FinishWing(cross *Cross, w *Wing) {
-	fmt.Printf("Finishing wing at %s %s (MM is %d)\n", cross.Root, w.Dir, w.Min)
 	coord := cross.Root
 	for i := uint8(1); i <= w.Min; i++ {
 		coord = coord.Plus(w.Dir)
@@ -360,11 +359,70 @@ func (b *RangeBoard) FinishWing(cross *Cross, w *Wing) {
 		}
 		b.MarkClear(coord)
 	}
-	cap := cross.Root.Plus(w.Dir.Times(int8(w.Min + 1)))
+	cap := cross.Root.Plus(w.Dir.Times(w.Min + 1))
 	if b.IsValid(cap) {
 		b.MarkPainted(cap)
 	}
 	cross.MarkWingCapped(w)
+}
+
+func (b *RangeBoard) UpdateWingRange(cross *Cross, dir Delta) {
+	if cross == nil {
+		return
+	}
+	wing := cross.Wings[dir]
+	otherWingsMax := uint8(1)
+	otherWingsMin := uint8(1)
+	for od, ow := range cross.Wings {
+		if od == dir {
+			continue
+		}
+		otherWingsMax += ow.Max
+		otherWingsMin += ow.Min
+	}
+	if wing.Min+otherWingsMax < cross.Size && wing.Min < cross.Size-otherWingsMax {
+		wing.Min = cross.Size - otherWingsMax
+		if wing.Min > wing.Max {
+			panic("wat min>max")
+		}
+		b.SetDirty()
+	}
+	if wing.Max+otherWingsMin > cross.Size && otherWingsMin < cross.Size && wing.Max > cross.Size-otherWingsMin {
+		wing.Max = cross.Size - otherWingsMin
+		if wing.Min > wing.Max {
+			panic("wat min>max")
+		}
+		b.SetDirty()
+	}
+	coord := cross.Root.Plus(dir)
+	wingsz := uint8(1)
+	fmt.Printf("In UWR, Wing at %s-%s started [%d-%d]\n", cross.Root, wing.Dir, wing.Min, wing.Max)
+	allClear := true
+	for b.IsValid(coord) && wingsz <= wing.Max {
+		if b.IsClear(coord) {
+			if allClear && wingsz > wing.Min {
+				wing.Min = wingsz
+				b.SetDirty()
+			}
+		} else if b.IsPainted(coord) {
+			wingsz--
+			if wingsz < wing.Max {
+				wing.Max = wingsz
+				b.SetDirty()
+			}
+			break
+		} else if b.IsUnknown(coord) {
+			if wingsz <= wing.Min && allClear {
+				b.MarkClear(coord)
+			}
+			allClear = false
+		}
+		wingsz++
+		coord = coord.Plus(dir)
+	}
+	if wing.Min == wing.Max && !wing.IsCapped {
+		b.FinishWing(cross, wing)
+	}
 }
 
 func (b *RangeBoard) UpdateWingRanges() {
@@ -372,36 +430,8 @@ func (b *RangeBoard) UpdateWingRanges() {
 		if cross.IsCapped {
 			continue
 		}
-		for dir, wing := range cross.Wings {
-			coord := cross.Root.Plus(dir)
-			wingsz := uint8(0)
-			fmt.Printf("Wing at %s-%s started [%d-%d]\n", cross.Root, wing.Dir, wing.Min, wing.Max)
-			for b.IsValid(coord) {
-				if b.IsClear(coord) {
-					wingsz++
-					if wingsz > wing.Min {
-						fmt.Printf("Raising min to %d\n", wingsz)
-						wing.Min = wingsz
-					}
-				} else if b.IsPainted(coord) {
-					if wingsz < wing.Max {
-						wing.Max = wingsz
-					}
-					break
-				} else if b.IsUnknown(coord) {
-					wingsz++
-					if wingsz <= wing.Min {
-						fmt.Printf("Clearing %s from cross at %s\n", coord, cross.Root)
-						b.MarkClear(coord)
-					} else {
-						break
-					}
-				}
-				coord = coord.Plus(dir)
-			}
-			if wing.Min == wing.Max && !wing.IsCapped {
-				b.FinishWing(cross, wing)
-			}
+		for _, dir := range DIRECTIONS {
+			b.UpdateWingRange(cross, dir)
 		}
 		sz := uint8(1)
 		for _, wing := range cross.Wings {
@@ -417,8 +447,10 @@ func (b *RangeBoard) ExpandWingTo(c *Cross, w *Wing, sz uint8) {
 	if w.Min >= sz {
 		return
 	}
+	fmt.Printf(">>>>>> Expanding wing %s-%s to %d\n", c.Root, w.Dir, sz)
 	w.Min = sz
-	for i := int8(1); i <= int8(sz); i++ {
+	b.SetDirty()
+	for i := uint8(1); i <= sz; i++ {
 		b.MarkClear(c.Root.Plus(w.Dir.Times(i)))
 	}
 }
@@ -438,6 +470,160 @@ func (b *RangeBoard) ExpandWingMinimums() {
 	}
 }
 
+func (b *RangeBoard) CheckCrossMerging() {
+	for _, cross := range b.AllCrosses {
+		if cross.IsCapped {
+			continue
+		}
+	oneWing:
+		for dir, w := range cross.Wings {
+			if w.IsCapped {
+				continue
+			}
+			oppWing := cross.Wings[dir.Reverse()]
+			oppWingEnd := cross.Root.Plus(dir.Reverse().Times(oppWing.Min))
+			for trywinglen := w.Min; trywinglen <= w.Max; trywinglen++ {
+				neighbors := make([]*Cross, 0)
+				tryneighbor := cross.Root.Plus(dir.Times(trywinglen + 1))
+				for b.IsValid(tryneighbor) && b.IsClear(tryneighbor) {
+					if b.CrossAt(tryneighbor) != nil {
+						neighbors = append(neighbors, b.CrossAt(tryneighbor))
+					}
+					tryneighbor = tryneighbor.Plus(dir)
+				}
+				for _, nc := range neighbors {
+					ncWing := nc.Wings[dir.Reverse()]
+					dist := nc.Root.MHDist(oppWingEnd)
+					if ncWing.Max < dist {
+						// fmt.Printf("Board:\n%s\n", b)
+						// fmt.Printf("Reducing max of cross at %s to %d because of merge with cross at %s\n", cross.Root, trywinglen-1, nc.Root)
+						// fmt.Printf("Expanding cross at %s in dir %s\n", cross.Root, dir)
+						// fmt.Printf("At winglen %d, merges with nc at %s\n", trywinglen, nc.Root)
+						// fmt.Printf("That would make neighbor wing %s at least %d long; max is %d", dir.Reverse(), dist, ncWing.Max)
+						w.Max = trywinglen - 1
+						b.SetDirty()
+						break oneWing
+					}
+				}
+			}
+			// loop N = [Min, Max]
+			// let winglen = cross.Wings[dir.Reverse()] + 1 +
+			// start at Root + dir * (N+1)
+			// continue until non-clear; keep a slice of all crosses encountered
+			//
+			// for each of these neighbors
+			// see if neighbor.Wings[dir.Reverse()].Min
+		}
+	}
+}
+
+func (b *RangeBoard) ClearMiniDominators() {
+	for y, row := range b.Grid {
+	oneCell:
+		for x, cell := range row {
+			coord := MkCoord(x, y)
+			if cell != CLEAR {
+				continue
+			}
+			fmt.Printf("Cell at %s is clear\n", coord)
+			var lib Coord
+			liberties := 0
+			for _, dir := range DIRECTIONS {
+				if b.IsValid(coord.Plus(dir)) && !b.IsPainted(coord.Plus(dir)) {
+					liberties++
+					if liberties > 1 {
+						fmt.Printf("Cell %s has %d libs\n", coord, liberties)
+						continue oneCell
+					}
+					lib = coord.Plus(dir)
+				}
+			}
+			fmt.Printf("Cell %s has %d libs\n", coord, liberties)
+			if liberties == 1 {
+				b.MarkClear(lib)
+			}
+		}
+	}
+}
+
+// TODO: change loop to callback func
+// TODO: same with neighbors
+func (b *RangeBoard) ClearAllDominators(start Coord) {
+	doms := make([][]*Set[Coord], 0)
+	for y := uint8(0); y < b.H; y++ {
+		doms = append(doms, make([]*Set[Coord], b.H))
+		for x := uint8(0); x < b.W; x++ {
+			if !b.IsPainted(Coord{x, y}) {
+				doms[y][x] = NewCoordSet()
+			}
+		}
+	}
+	doms[start.Y][start.X].Add(start)
+	def := NewCoordSet()
+	for c := b.TopLeft(); b.IsValid(c); c = b.Next(c) {
+		if !b.IsPainted(c) {
+			def.Add(c)
+		}
+	}
+	for c := b.TopLeft(); b.IsValid(c); c = b.Next(c) {
+		if !b.IsPainted(c) && c != start {
+			doms[c.Y][c.X].AddAll(def)
+		}
+	}
+	changed := true
+	for changed {
+		changed = false
+		for c := b.TopLeft(); b.IsValid(c); c = b.Next(c) {
+			if b.IsPainted(c) || c == start {
+				continue
+			}
+			var newDoms *Set[Coord]
+			for _, dir := range DIRECTIONS {
+				n := c.Plus(dir)
+				if b.IsValid(n) && !b.IsPainted(n) {
+					if newDoms == nil {
+						newDoms = doms[n.Y][n.X].Copy()
+					} else {
+						newDoms.IntersectWith(doms[n.Y][n.X])
+					}
+				}
+			}
+			newDoms.Add(c)
+			if newDoms.Size() != doms[c.Y][c.X].Size() {
+				doms[c.Y][c.X] = newDoms
+				changed = true
+			}
+		}
+	}
+	for c := b.TopLeft(); b.IsValid(c); c = b.Next(c) {
+		if doms[c.Y][c.X] == nil {
+			continue
+		}
+		if doms[c.Y][c.X].Size() >= 3 {
+			fmt.Printf("COordinate %s has %d dominators:\n", c, doms[c.Y][c.X].Size())
+			for k, _ := range doms[c.Y][c.X].M {
+				if k != start && k != c {
+					fmt.Printf("\t%s\n", k)
+					b.MarkClear(k)
+				}
+			}
+		}
+	}
+}
+
+func (b *RangeBoard) Solve() {
+	b.ClearDirty()
+	for {
+		b.UpdateWingRanges()
+		b.ExpandWingMinimums()
+		b.CheckCrossMerging()
+		if !b.IsDirty() {
+			break
+		}
+		b.ClearDirty()
+	}
+}
+
 func RangeBoardFromLines(input []string) *RangeBoard {
 	rect := RectBoardFromLines(input)
 	rg := RangeBoard{
@@ -450,7 +636,7 @@ func RangeBoardFromLines(input []string) *RangeBoard {
 			if val, ok := CharToNum(ch); ok {
 				c := MkCoord(x, y)
 				rg.Crosses[y][x] = &Cross{
-					Root:     Coord{X: uint8(x), Y: uint8(y)},
+					Root:     c,
 					Size:     val,
 					Wings:    rg.MakeWings(c),
 					IsCapped: false,
@@ -461,6 +647,7 @@ func RangeBoardFromLines(input []string) *RangeBoard {
 			}
 		}
 	}
+	rg.Inited = true
 	return &rg
 }
 
@@ -484,6 +671,25 @@ func LoadFile(fn string) ([]string, error) {
 }
 
 func main() {
+	inp, err := LoadFile("blank.txt")
+	if err != nil {
+		fmt.Printf("%v\n", err)
+		return
+	}
+	b := RangeBoardFromLines(inp)
+
+	fmt.Printf("%s\n", b.StringVerbose())
+	b.MarkPainted(MkCoord(1, 0))
+	b.MarkPainted(MkCoord(0, 3))
+	b.MarkPainted(MkCoord(1, 4))
+	b.MarkPainted(MkCoord(1, 6))
+	b.MarkPainted(MkCoord(0, 7))
+	fmt.Printf("%s\nNOW CLAERING\n", b.String())
+	b.ClearAllDominators(Coord{5, 8})
+	fmt.Printf("%s\n", b.String())
+}
+
+func solveit() {
 	inp, err := LoadFile("range1.txt")
 	if err != nil {
 		fmt.Printf("%v\n", err)
@@ -492,6 +698,11 @@ func main() {
 	b := RangeBoardFromLines(inp)
 
 	fmt.Printf("%s\n", b.StringVerbose())
+	b.Solve()
+	fmt.Printf("*********************************************************\n%s\n", b.StringVerbose())
+	c, d := b.IsSolved()
+	fmt.Printf("Solved: %v (%v)\n", c, d)
+	return
 	b.UpdateWingRanges()
 	fmt.Printf("*********************************************************\n%s\n", b.String())
 	b.ExpandWingMinimums()
