@@ -6,125 +6,21 @@ import (
 	"strings"
 )
 
-type BinBoard interface {
-	MarkPainted(Coord) (bool, error)
-	MarkClear(Coord) (bool, error)
-	IsPainted(Coord) bool
-	IsClear(Coord) bool
-	IsUnknown(Coord) bool
-	IsValid(Coord) bool
-	IsComplete() bool
-	IsSolved() bool
-	Init(string)
-	InitDone() bool
-	PostMark(Coord, Cell) bool
-	SetDirty()
-	ClearDirty()
-	IsDirty() bool
-}
-
-type RectBoard struct {
-	W      uint8
-	H      uint8
-	Grid   [][]Cell
-	Dirty  bool
-	Inited bool
-}
-
-func RectBoardFromLines(input []string) *RectBoard {
-	w := uint8(len(input[0]))
-	h := uint8(len(input))
-	return &RectBoard{
-		W:    w,
-		H:    h,
-		Grid: MakeGrid(w, h),
-	}
-}
-
-func (b *RectBoard) TopLeft() Coord {
-	return Coord{0, 0}
-}
-
-func (b *RectBoard) Next(c Coord) Coord {
-	c.X++
-	if c.X == b.W {
-		c.X = 0
-		c.Y++
-	}
-	return c
-}
-
-func (b *RectBoard) InitDone() bool {
-	return b.Inited
-}
-
-func (b *RectBoard) SetDirty() {
-	b.Dirty = true
-}
-
-func (b *RectBoard) ClearDirty() {
-	b.Dirty = false
-}
-
-func (b *RectBoard) IsDirty() bool {
-	return b.Dirty
-}
-
-func (b *RectBoard) Get(c Coord) Cell {
-	return b.Grid[c.Y][c.X]
-}
-
-func (b *RectBoard) IsPainted(c Coord) bool {
-	return b.IsValid(c) && b.Get(c) == PAINTED
-}
-func (b *RectBoard) IsClear(c Coord) bool {
-	return b.IsValid(c) && b.Get(c) == CLEAR
-}
-func (b *RectBoard) IsUnknown(c Coord) bool {
-	return b.IsValid(c) && b.Get(c) == UNKNOWN
-}
-func (b *RectBoard) IsValid(c Coord) bool {
-	return c.X < b.W && c.Y < b.H
-}
-func (b *RectBoard) IsComplete() bool {
-	for _, row := range b.Grid {
-		for _, cell := range row {
-			if cell == UNKNOWN {
-				return false
-			}
-		}
-	}
-	return true
-}
-func (b *RectBoard) IsSolved() bool {
-	return false
-}
-
-func (b *RectBoard) Set(c Coord, v Cell) (bool, error) {
-	if !b.IsValid(c) {
-		return false, fmt.Errorf("coordinate (%d,%d) not valid on board of size (%d,%d)", c.X, c.Y, b.W, b.H)
-	}
-	if b.IsPainted(c) {
-		return false, nil
-	}
-	if b.IsClear(c) {
-		return false, fmt.Errorf("coordinate (%d,%d) is already clear; cannot paint it", c.X, c.Y)
-	}
-	b.Grid[c.Y][c.X] = v
-	return true, nil
-}
-
 func (b *RangeBoard) CrossAt(c Coord) *Cross {
 	return b.Crosses[c.Y][c.X]
 }
 
 func (b *RangeBoard) IsSolved() (bool, error) {
-	for y, row := range b.Grid {
-		for x, cell := range row {
-			if cell == UNKNOWN {
-				return false, fmt.Errorf("cell %s is unknown", Coord{uint8(x), uint8(y)})
-			}
+	var err error
+	b.EachCell(func(c Coord, v Cell) bool {
+		if v == UNKNOWN {
+			err = fmt.Errorf("cell %s is unknown", c)
+			return true
 		}
+		return false
+	})
+	if err != nil {
+		return false, err
 	}
 	for _, cross := range b.AllCrosses {
 		ct := uint8(1)
@@ -139,34 +35,37 @@ func (b *RangeBoard) IsSolved() (bool, error) {
 			return false, fmt.Errorf("cross at %s needs %d; has %d", cross.Root, cross.Size, ct)
 		}
 	}
-	reached := make(map[Coord]struct{})
-	var c Coord
-	for y, row := range b.Grid {
-		for x, cell := range row {
-			if cell == CLEAR {
-				c = Coord{X: uint8(x), Y: uint8(y)}
-			}
+	reached := NewCoordSet()
+	var start Coord
+	b.EachCell(func(cd Coord, v Cell) bool {
+		if v == CLEAR {
+			start = cd
+			return true
 		}
-	}
+		return false
+	})
 	frontier := make([]Coord, 0, 1)
-	frontier = append(frontier, c)
+	frontier = append(frontier, start)
 	for len(frontier) > 0 {
 		touch := frontier[0]
-		reached[touch] = struct{}{}
+		reached.Add(touch)
 		frontier = frontier[1:]
-		for _, dir := range DIRECTIONS {
-			new := touch.Plus(dir)
-			if _, ok := reached[new]; !ok && b.IsValid(new) {
-				frontier = append(frontier, new)
+		b.EachNeighbor(touch, func(c Coord, v Cell) bool {
+			if !reached.Has(c) {
+				frontier = append(frontier, c)
 			}
-		}
+			return false
+		})
 	}
-	for y, row := range b.Grid {
-		for x, cell := range row {
-			if _, ok := reached[Coord{uint8(x), uint8(y)}]; cell == CLEAR && !ok {
-				return false, fmt.Errorf("cannot read clear cell (%d,%d) from %s", x, y, c)
-			}
+	b.EachCell(func(c Coord, v Cell) bool {
+		if !reached.Has(c) && v == CLEAR {
+			err = fmt.Errorf("cannot reach clear cell %s from %s", c, start)
+			return true
 		}
+		return false
+	})
+	if err != nil {
+		return false, err
 	}
 	return true, nil
 }
@@ -273,13 +172,11 @@ func (b *RangeBoard) String() string {
 func (b *RangeBoard) StringVerbose() string {
 	out := b.String()
 	out += "\n\nCrosses:\n"
-	for _, row := range b.Crosses {
-		for _, cross := range row {
-			if cross == nil {
-				continue
-			}
-			out += fmt.Sprintf("%s\n", cross.StringVerbose())
+	for _, cross := range b.AllCrosses {
+		if cross == nil {
+			continue
 		}
+		out += fmt.Sprintf("%s\n", cross.StringVerbose())
 	}
 	return out
 }
@@ -301,12 +198,10 @@ func (b *RangeBoard) PostMark(c Coord, v Cell) {
 	*/
 	// Clear adjacent cells to paint
 	if v == PAINTED {
-		for _, dir := range DIRECTIONS {
-			new := c.Plus(dir)
-			if b.IsValid(new) {
-				b.MarkClear(new)
-			}
-		}
+		b.EachNeighbor(c, func(n Coord, v Cell) bool {
+			b.MarkClear(n)
+			return false
+		})
 	}
 	if !b.InitDone() {
 		return
@@ -518,32 +413,27 @@ func (b *RangeBoard) CheckCrossMerging() {
 }
 
 func (b *RangeBoard) ClearMiniDominators() {
-	for y, row := range b.Grid {
-	oneCell:
-		for x, cell := range row {
-			coord := MkCoord(x, y)
-			if cell != CLEAR {
-				continue
-			}
-			fmt.Printf("Cell at %s is clear\n", coord)
-			var lib Coord
-			liberties := 0
-			for _, dir := range DIRECTIONS {
-				if b.IsValid(coord.Plus(dir)) && !b.IsPainted(coord.Plus(dir)) {
-					liberties++
-					if liberties > 1 {
-						fmt.Printf("Cell %s has %d libs\n", coord, liberties)
-						continue oneCell
-					}
-					lib = coord.Plus(dir)
+	b.EachCell(func(c Coord, v Cell) bool {
+		if v != CLEAR {
+			return false
+		}
+		var lib Coord
+		liberties := 0
+		b.EachNeighbor(c, func(n Coord, nv Cell) bool {
+			if nv != PAINTED {
+				liberties++
+				lib = n
+				if liberties > 1 {
+					return true
 				}
 			}
-			fmt.Printf("Cell %s has %d libs\n", coord, liberties)
-			if liberties == 1 {
-				b.MarkClear(lib)
-			}
+			return false
+		})
+		if liberties == 1 {
+			b.MarkClear(lib)
 		}
-	}
+		return false
+	})
 }
 
 // TODO: change loop to callback func
@@ -578,16 +468,16 @@ func (b *RangeBoard) ClearAllDominators(start Coord) {
 				continue
 			}
 			var newDoms *Set[Coord]
-			for _, dir := range DIRECTIONS {
-				n := c.Plus(dir)
-				if b.IsValid(n) && !b.IsPainted(n) {
+			b.EachNeighbor(c, func(n Coord, nv Cell) bool {
+				if nv != PAINTED {
 					if newDoms == nil {
 						newDoms = doms[n.Y][n.X].Copy()
 					} else {
 						newDoms.IntersectWith(doms[n.Y][n.X])
 					}
 				}
-			}
+				return false
+			})
 			newDoms.Add(c)
 			if newDoms.Size() != doms[c.Y][c.X].Size() {
 				doms[c.Y][c.X] = newDoms
@@ -671,6 +561,8 @@ func LoadFile(fn string) ([]string, error) {
 }
 
 func main() {
+	solveit()
+	// return
 	inp, err := LoadFile("blank.txt")
 	if err != nil {
 		fmt.Printf("%v\n", err)
@@ -703,28 +595,4 @@ func solveit() {
 	c, d := b.IsSolved()
 	fmt.Printf("Solved: %v (%v)\n", c, d)
 	return
-	b.UpdateWingRanges()
-	fmt.Printf("*********************************************************\n%s\n", b.String())
-	b.ExpandWingMinimums()
-	fmt.Printf("*********************************************************\n%s\n", b.String())
-	b.UpdateWingRanges()
-	fmt.Printf("*********************************************************\n%s\n", b.String())
-	b.ExpandWingMinimums()
-	fmt.Printf("*********************************************************\n%s\n", b.String())
-	b.UpdateWingRanges()
-	fmt.Printf("*********************************************************\n%s\n", b.String())
-	b.ExpandWingMinimums()
-	fmt.Printf("*********************************************************\n%s\n", b.String())
-	b.UpdateWingRanges()
-	fmt.Printf("*********************************************************\n%s\n", b.String())
-	b.ExpandWingMinimums()
-	fmt.Printf("*********************************************************\n%s\n", b.String())
-	b.UpdateWingRanges()
-	fmt.Printf("*********************************************************\n%s\n", b.String())
-	b.ExpandWingMinimums()
-	fmt.Printf("*********************************************************\n%s\n", b.String())
-	b.UpdateWingRanges()
-	fmt.Printf("*********************************************************\n%s\n", b.String())
-	b.ExpandWingMinimums()
-	fmt.Printf("*********************************************************\n%s\n", b.StringVerbose())
 }
