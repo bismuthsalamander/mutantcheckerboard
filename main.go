@@ -23,7 +23,7 @@ func (b *RangeBoard) IsSolved() (bool, error) {
 		return false, err
 	}
 	for _, cross := range b.AllCrosses {
-		ct := uint8(1)
+		ct := 1
 		for _, dir := range DIRECTIONS {
 			coord := cross.Root.Plus(dir)
 			for b.IsValid(coord) && b.IsClear(coord) {
@@ -92,26 +92,26 @@ func (b *RangeBoard) MarkClear(c Coord) (bool, error) {
 
 type Wing struct {
 	Dir      Delta
-	Min      uint8
-	Max      uint8
+	Min      int
+	Max      int
 	IsCapped bool
 }
 
 type Cross struct {
 	Root     Coord
-	Size     uint8
+	Size     int
 	Wings    map[Delta]*Wing
 	IsCapped bool
 }
 
 func (c *Cross) String() string {
-	return fmt.Sprintf("%d", c.Size)
+	return fmt.Sprintf("%c", NumToCh(c.Size))
 }
 
 func (c *Cross) StringVerbose() string {
 	out := fmt.Sprintf("Cross at %s sz %d", c.Root, c.Size)
 	for dir, wing := range c.Wings {
-		out += fmt.Sprintf("\tWing %s [%d-%d] capped %s\n", dir, wing.Min, wing.Max, wing.IsCapped)
+		out += fmt.Sprintf("\tWing %s [%d-%d] capped %v\n", dir, wing.Min, wing.Max, wing.IsCapped)
 	}
 	return out[:len(out)-1]
 }
@@ -122,20 +122,20 @@ type RangeBoard struct {
 	AllCrosses []*Cross
 }
 
-func MakeCrosses(w, h uint8) [][]*Cross {
+func MakeCrosses(w, h int) [][]*Cross {
 	c := make([][]*Cross, 0, h)
-	for i := 0; i < int(h); i++ {
+	for i := 0; i < h; i++ {
 		c = append(c, make([]*Cross, w))
 	}
 	return c
 }
 
-func CharToNum(ch rune) (uint8, bool) {
+func CharToNum(ch rune) (int, bool) {
 	if ch >= '0' && ch <= '9' {
-		return uint8(ch - '0'), true
+		return int(ch - '0'), true
 	}
 	if ch >= 'a' && ch <= 'z' {
-		return uint8(ch-'a') + 10, true
+		return int(ch-'a') + 10, true
 	}
 	return 0, false
 }
@@ -150,7 +150,7 @@ func (b *RangeBoard) MakeWings(c Coord) map[Delta]*Wing {
 }
 
 func (b *RangeBoard) String() string {
-	out := "+" + strings.Repeat("-", int(b.W)) + "+\n"
+	out := "+" + strings.Repeat("-", b.W) + "+\n"
 	for y, row := range b.Grid {
 		out += "|"
 		for x, cell := range row {
@@ -161,11 +161,11 @@ func (b *RangeBoard) String() string {
 			}
 		}
 		out += "|"
-		if y != int(b.H)-1 {
+		if y != b.H-1 {
 			out += "\n"
 		}
 	}
-	out += "\n+" + strings.Repeat("-", int(b.W)) + "+"
+	out += "\n+" + strings.Repeat("-", b.W) + "+"
 	return out
 }
 
@@ -245,7 +245,7 @@ func (b *RangeBoard) FinishCross(cross *Cross) {
 
 func (b *RangeBoard) FinishWing(cross *Cross, w *Wing) {
 	coord := cross.Root
-	for i := uint8(1); i <= w.Min; i++ {
+	for i := 1; i <= w.Min; i++ {
 		coord = coord.Plus(w.Dir)
 		if !b.IsValid(coord) {
 			//TODO: report an error cleanly
@@ -266,8 +266,8 @@ func (b *RangeBoard) UpdateWingRange(cross *Cross, dir Delta) {
 		return
 	}
 	wing := cross.Wings[dir]
-	otherWingsMax := uint8(1)
-	otherWingsMin := uint8(1)
+	otherWingsMax := 1
+	otherWingsMin := 1
 	for od, ow := range cross.Wings {
 		if od == dir {
 			continue
@@ -290,7 +290,7 @@ func (b *RangeBoard) UpdateWingRange(cross *Cross, dir Delta) {
 		b.SetDirty()
 	}
 	coord := cross.Root.Plus(dir)
-	wingsz := uint8(1)
+	wingsz := 1
 	fmt.Printf("In UWR, Wing at %s-%s started [%d-%d]\n", cross.Root, wing.Dir, wing.Min, wing.Max)
 	allClear := true
 	for b.IsValid(coord) && wingsz <= wing.Max {
@@ -328,7 +328,7 @@ func (b *RangeBoard) UpdateWingRanges() {
 		for _, dir := range DIRECTIONS {
 			b.UpdateWingRange(cross, dir)
 		}
-		sz := uint8(1)
+		sz := 1
 		for _, wing := range cross.Wings {
 			sz += wing.Min
 		}
@@ -338,14 +338,14 @@ func (b *RangeBoard) UpdateWingRanges() {
 	}
 }
 
-func (b *RangeBoard) ExpandWingTo(c *Cross, w *Wing, sz uint8) {
+func (b *RangeBoard) ExpandWingTo(c *Cross, w *Wing, sz int) {
 	if w.Min >= sz {
 		return
 	}
 	fmt.Printf(">>>>>> Expanding wing %s-%s to %d\n", c.Root, w.Dir, sz)
 	w.Min = sz
 	b.SetDirty()
-	for i := uint8(1); i <= sz; i++ {
+	for i := 1; i <= sz; i++ {
 		b.MarkClear(c.Root.Plus(w.Dir.Times(i)))
 	}
 }
@@ -436,13 +436,11 @@ func (b *RangeBoard) ClearMiniDominators() {
 	})
 }
 
-// TODO: change loop to callback func
-// TODO: same with neighbors
 func (b *RangeBoard) ClearAllDominators(start Coord) {
 	doms := make([][]*Set[Coord], 0)
-	for y := uint8(0); y < b.H; y++ {
+	for y := 0; y < b.H; y++ {
 		doms = append(doms, make([]*Set[Coord], b.H))
-		for x := uint8(0); x < b.W; x++ {
+		for x := 0; x < b.W; x++ {
 			if !b.IsPainted(Coord{x, y}) {
 				doms[y][x] = NewCoordSet()
 			}
@@ -501,16 +499,146 @@ func (b *RangeBoard) ClearAllDominators(start Coord) {
 	}
 }
 
+func (b *RangeBoard) UpdateSharedRanges() {
+	coords := NewCoordSet()
+	for x := 0; x < b.W; x++ {
+		coords.Clear()
+		for y := 0; y < b.H; y++ {
+			c := Coord{x, y}
+			if !b.IsClear(c) {
+				b.ShareRangesVertical(coords)
+				coords.Clear()
+			} else if b.CrossAt(c) != nil {
+				coords.Add(c)
+			}
+		}
+		b.ShareRangesVertical(coords)
+	}
+	coords.Clear()
+	for y := 0; y < b.H; y++ {
+		coords.Clear()
+		for x := 0; x < b.W; x++ {
+			c := Coord{x, y}
+			if b.IsPainted(c) {
+				b.ShareRangesHorizontal(coords)
+				coords.Clear()
+			} else if b.CrossAt(c) != nil {
+				coords.Add(c)
+			}
+		}
+		b.ShareRangesHorizontal(coords)
+	}
+}
+
+func (b *RangeBoard) ShareRangesVertical(s *Set[Coord]) {
+	b.ShareRanges(s, LEFT, RIGHT, UP, DOWN)
+}
+
+func (b *RangeBoard) ShareRangesHorizontal(s *Set[Coord]) {
+	b.ShareRanges(s, UP, DOWN, LEFT, RIGHT)
+}
+
+/*
+two crosses share an axis
+no cross can:
+  - expand past the lowest axis max in the group
+  - have a minimum below the highest min in the group
+
+find the lowest shared-axis max
+find the highest shared-axis min
+
+each cross must:
+  - have its own cross-axis required between its two cross-wings
+*/
+
+func (b *RangeBoard) ApplyAxisRange(c *Cross, axisMin, axisMax int, dir1, dir2 Delta) {
+	// lengthen dir2
+	if c.Wings[dir1].Max+c.Wings[dir2].Min < axisMin {
+		newMin := axisMin - c.Wings[dir1].Max
+		fmt.Printf("Changing %s's Min along %s to %d\n", c.Root, dir2, newMin)
+		c.Wings[dir2].Min = newMin
+		b.SetDirty()
+	}
+	// lengthen dir1
+	if c.Wings[dir2].Max+c.Wings[dir1].Min < axisMin {
+		newMin := axisMin - c.Wings[dir2].Max
+		fmt.Printf("Changing %s's Min along %s to %d\n", c.Root, dir1, newMin)
+		c.Wings[dir1].Min = newMin
+		b.SetDirty()
+	}
+	// shorten dir2
+	if c.Wings[dir1].Min+c.Wings[dir2].Max > axisMax {
+		newMax := axisMax - c.Wings[dir1].Min
+		fmt.Printf("Changing %s's Max along %s to %d\n", c.Root, dir2, newMax)
+		c.Wings[dir2].Max = newMax
+		b.SetDirty()
+	}
+	// shorten dir1
+	if c.Wings[dir2].Min+c.Wings[dir1].Max > axisMax {
+		newMax := axisMax - c.Wings[dir2].Min
+		fmt.Printf("Changing %s's Max along %s to %d\n", c.Root, dir1, newMax)
+		c.Wings[dir1].Max = newMax
+		b.SetDirty()
+	}
+}
+
+// TODO: change this to track axis mins and maxes
+func (b *RangeBoard) ShareRanges(s *Set[Coord], cross1 Delta, cross2 Delta, shared1 Delta, shared2 Delta) {
+	if s.Size() < 2 {
+		return
+	}
+	fmt.Printf("%s\nShare ranges along %s, %s:\n", b, cross1, cross2)
+	for k, _ := range s.M {
+		fmt.Printf("\t%s %s\n", k, b.CrossAt(k))
+	}
+	first := true
+	axisSharedMin := 0
+	axisSharedMax := 0
+	for k := range s.M {
+		c := b.CrossAt(k)
+		sharedMin := (c.Size - 1) - (c.Wings[cross1].Max + c.Wings[cross2].Max)
+		sharedMax := (c.Size - 1) - (c.Wings[cross1].Min + c.Wings[cross2].Min)
+		sharedBoardSize := b.H
+		if shared1 == LEFT || shared2 == LEFT {
+			sharedBoardSize = b.W
+		}
+		if sharedMax > sharedBoardSize {
+			sharedMax = sharedBoardSize
+		}
+		// fmt.Printf("Cross %s min along shared is %d; max along shared is %d\n", c, sharedMin, sharedMax)
+		if first || sharedMin > axisSharedMin {
+			axisSharedMin = sharedMin
+		}
+		if first || sharedMax < axisSharedMax {
+			axisSharedMax = sharedMax
+		}
+		first = false
+	}
+	// fmt.Printf("High shared min is %d; low shared max is %d\n", axisSharedMin, axisSharedMax)
+	for k := range s.M {
+		c := b.CrossAt(k)
+		b.ApplyAxisRange(c, axisSharedMin, axisSharedMax, shared1, shared2)
+
+		crossAxisMin := c.Size - (1 + c.Wings[shared1].Max + c.Wings[shared2].Max)
+		crossAxisMax := c.Size - (1 + c.Wings[shared1].Min + c.Wings[shared2].Min)
+		b.ApplyAxisRange(c, crossAxisMin, crossAxisMax, cross1, cross2)
+	}
+}
+
 func (b *RangeBoard) Solve() {
-	b.ClearDirty()
-	for {
+	b.SetDirty()
+	for b.IsDirty() {
+		b.ClearDirty()
 		b.UpdateWingRanges()
 		b.ExpandWingMinimums()
 		b.CheckCrossMerging()
-		if !b.IsDirty() {
-			break
+		b.UpdateSharedRanges()
+		b.ClearMiniDominators()
+		if b.IsDirty() {
+			continue
 		}
-		b.ClearDirty()
+		b.ClearAllDominators(Coord{0, 0})
+		b.ClearAllDominators(Coord{b.W - 1, b.H - 1})
 	}
 }
 
@@ -533,6 +661,7 @@ func RangeBoardFromLines(input []string) *RangeBoard {
 				}
 				rg.AllCrosses = append(rg.AllCrosses, rg.Crosses[y][x])
 				rg.MarkClear(c)
+				fmt.Printf("coord (%d,%d)\n", x, y)
 				rg.CheckAllCaps(rg.Crosses[y][x])
 			}
 		}
@@ -560,8 +689,26 @@ func LoadFile(fn string) ([]string, error) {
 	return lines, nil
 }
 
+func shared() {
+	inp, err := LoadFile("adj.txt")
+	if err != nil {
+		fmt.Printf("%v\n", err)
+		return
+	}
+	b := RangeBoardFromLines(inp)
+
+	fmt.Printf("%s\n", b.StringVerbose())
+	b.UpdateWingRanges()
+	b.UpdateSharedRanges()
+	fmt.Printf("%s\n", b.StringVerbose())
+	b.ExpandWingMinimums()
+	b.UpdateWingRanges()
+	fmt.Printf("%s\n", b.StringVerbose())
+}
+
 func main() {
-	solveit()
+	shared()
+	return
 	// return
 	inp, err := LoadFile("blank.txt")
 	if err != nil {

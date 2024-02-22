@@ -3,8 +3,8 @@ package main
 import "fmt"
 
 type Coord struct {
-	X uint8
-	Y uint8
+	X int
+	Y int
 }
 
 func (c Coord) String() string {
@@ -12,8 +12,8 @@ func (c Coord) String() string {
 }
 
 type Delta struct {
-	X int8
-	Y int8
+	X int
+	Y int
 }
 
 func (d Delta) String() string {
@@ -50,8 +50,8 @@ func (d Delta) Reverse() Delta {
 	}
 }
 
-func (d Delta) Times(n uint8) Delta {
-	return Delta{d.X * int8(n), d.Y * int8(n)}
+func (d Delta) Times(n int) Delta {
+	return Delta{d.X * n, d.Y * n}
 }
 
 var LEFT = Delta{-1, 0}
@@ -63,8 +63,8 @@ var DIRECTIONS = []Delta{LEFT, RIGHT, UP, DOWN}
 
 func (c Coord) Minus(o Coord) Delta {
 	d := Delta{
-		int8(c.X) - int8(o.X),
-		int8(c.Y) - int8(o.Y),
+		c.X - o.X,
+		c.Y - o.Y,
 	}
 	if d.X < 0 {
 		d.X *= -1
@@ -75,8 +75,8 @@ func (c Coord) Minus(o Coord) Delta {
 	return d
 }
 
-func (c Coord) MHDist(o Coord) uint8 {
-	val := uint8(0)
+func (c Coord) MHDist(o Coord) int {
+	val := 0
 	if c.X > o.X {
 		val += c.X - o.X
 	} else {
@@ -92,15 +92,15 @@ func (c Coord) MHDist(o Coord) uint8 {
 
 func (c Coord) Plus(d Delta) Coord {
 	return Coord{
-		X: uint8(int8(c.X) + d.X),
-		Y: uint8(int8(c.Y) + d.Y),
+		X: c.X + d.X,
+		Y: c.Y + d.Y,
 	}
 }
 
 func MkCoord(x, y int) Coord {
 	return Coord{
-		X: uint8(x),
-		Y: uint8(y),
+		X: x,
+		Y: y,
 	}
 }
 
@@ -123,16 +123,16 @@ func (c Cell) String() string {
 	return string(c.Ch())
 }
 
-func NumToCh(n uint8) rune {
+func NumToCh(n int) rune {
 	if n < 10 {
-		return rune(uint8('0') + n)
+		return rune(int('0') + n)
 	} else if n <= 35 {
-		return rune(uint8('a') + (n - 10))
+		return rune(int('a') + (n - 10))
 	}
 	return '?'
 }
 
-func MakeGrid(w, h uint8) [][]Cell {
+func MakeGrid(w, h int) [][]Cell {
 	g := make([][]Cell, 0, h)
 	for i := 0; i < int(h); i++ {
 		g = append(g, make([]Cell, w))

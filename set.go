@@ -45,6 +45,12 @@ func (s *Set[T]) Del(t T) bool {
 	return has
 }
 
+func (s *Set[T]) Clear() {
+	for k, _ := range s.M {
+		delete(s.M, k)
+	}
+}
+
 func (s *Set[T]) Copy() *Set[T] {
 	out := NewSet[T]()
 	out.AddAll(s)

@@ -20,16 +20,16 @@ type BinBoard interface {
 }
 
 type RectBoard struct {
-	W      uint8
-	H      uint8
+	W      int
+	H      int
 	Grid   [][]Cell
 	Dirty  bool
 	Inited bool
 }
 
 func RectBoardFromLines(input []string) *RectBoard {
-	w := uint8(len(input[0]))
-	h := uint8(len(input))
+	w := len(input[0])
+	h := len(input)
 	return &RectBoard{
 		W:    w,
 		H:    h,
@@ -80,7 +80,7 @@ func (b *RectBoard) IsUnknown(c Coord) bool {
 	return b.IsValid(c) && b.Get(c) == UNKNOWN
 }
 func (b *RectBoard) IsValid(c Coord) bool {
-	return c.X < b.W && c.Y < b.H
+	return c.X >= 0 && c.Y >= 0 && c.X < b.W && c.Y < b.H
 }
 func (b *RectBoard) IsComplete() bool {
 	for _, row := range b.Grid {
