@@ -113,7 +113,7 @@ func (b *RectBoard) Set(c Coord, v Cell) (bool, error) {
 func (b *RectBoard) EachCell(cb func(c Coord, v Cell) bool) {
 	for y, row := range b.Grid {
 		for x, cell := range row {
-			if cb(MkCoord(x, y), cell) {
+			if cb(Coord{x, y}, cell) {
 				return
 			}
 		}

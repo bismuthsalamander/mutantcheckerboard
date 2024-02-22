@@ -12,15 +12,10 @@ func (b *RangeBoard) CrossAt(c Coord) *Cross {
 
 func (b *RangeBoard) IsSolved() (bool, error) {
 	var err error
-	b.EachCell(func(c Coord, v Cell) bool {
-		if v == UNKNOWN {
-			err = fmt.Errorf("cell %s is unknown", c)
-			return true
+	for c := b.TopLeft(); b.IsValid(c); c = b.Next(c) {
+		if b.Get(c) == UNKNOWN {
+			return false, fmt.Errorf("cell %s is unknown", c)
 		}
-		return false
-	})
-	if err != nil {
-		return false, err
 	}
 	for _, cross := range b.AllCrosses {
 		ct := 1
@@ -57,15 +52,10 @@ func (b *RangeBoard) IsSolved() (bool, error) {
 			return false
 		})
 	}
-	b.EachCell(func(c Coord, v Cell) bool {
-		if !reached.Has(c) && v == CLEAR {
-			err = fmt.Errorf("cannot reach clear cell %s from %s", c, start)
-			return true
+	for c := b.TopLeft(); b.IsValid(c); c = b.Next(c) {
+		if !reached.Has(c) && b.Get(c) == CLEAR {
+			return false, fmt.Errorf("cannot reach clear cell %s from %s", c, start)
 		}
-		return false
-	})
-	if err != nil {
-		return false, err
 	}
 	return true, nil
 }
@@ -582,7 +572,7 @@ func (b *RangeBoard) ApplyAxisRange(c *Cross, axisMin, axisMax int, dir1, dir2 D
 	}
 }
 
-// TODO: change this to track axis mins and maxes
+// TODO: change this to track axis mins and maxes on cross struct
 func (b *RangeBoard) ShareRanges(s *Set[Coord], cross1 Delta, cross2 Delta, shared1 Delta, shared2 Delta) {
 	if s.Size() < 2 {
 		return
@@ -652,7 +642,7 @@ func RangeBoardFromLines(input []string) *RangeBoard {
 	for y, row := range input {
 		for x, ch := range row {
 			if val, ok := CharToNum(ch); ok {
-				c := MkCoord(x, y)
+				c := Coord{x, y}
 				rg.Crosses[y][x] = &Cross{
 					Root:     c,
 					Size:     val,
@@ -718,11 +708,11 @@ func main() {
 	b := RangeBoardFromLines(inp)
 
 	fmt.Printf("%s\n", b.StringVerbose())
-	b.MarkPainted(MkCoord(1, 0))
-	b.MarkPainted(MkCoord(0, 3))
-	b.MarkPainted(MkCoord(1, 4))
-	b.MarkPainted(MkCoord(1, 6))
-	b.MarkPainted(MkCoord(0, 7))
+	b.MarkPainted(Coord{1, 0})
+	b.MarkPainted(Coord{0, 3})
+	b.MarkPainted(Coord{1, 4})
+	b.MarkPainted(Coord{1, 6})
+	b.MarkPainted(Coord{0, 7})
 	fmt.Printf("%s\nNOW CLAERING\n", b.String())
 	b.ClearAllDominators(Coord{5, 8})
 	fmt.Printf("%s\n", b.String())

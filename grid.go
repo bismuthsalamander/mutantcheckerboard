@@ -97,13 +97,6 @@ func (c Coord) Plus(d Delta) Coord {
 	}
 }
 
-func MkCoord(x, y int) Coord {
-	return Coord{
-		X: x,
-		Y: y,
-	}
-}
-
 type Cell int8
 
 const UNKNOWN = 0
