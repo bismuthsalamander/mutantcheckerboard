@@ -107,7 +107,7 @@ func (c Cell) Ch() rune {
 	if c == PAINTED {
 		return 'X'
 	} else if c == CLEAR {
-		return '.'
+		return '·'
 	}
 	return ' '
 }

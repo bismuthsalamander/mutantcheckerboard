@@ -11,7 +11,6 @@ func (b *RangeBoard) CrossAt(c Coord) *Cross {
 }
 
 func (b *RangeBoard) IsSolved() (bool, error) {
-	var err error
 	for c := b.TopLeft(); b.IsValid(c); c = b.Next(c) {
 		if b.Get(c) == UNKNOWN {
 			return false, fmt.Errorf("cell %s is unknown", c)
@@ -39,7 +38,7 @@ func (b *RangeBoard) IsSolved() (bool, error) {
 		}
 		return false
 	})
-	frontier := make([]Coord, 0, 1)
+	frontier := make([]Coord, 0, b.W*b.H)
 	frontier = append(frontier, start)
 	for len(frontier) > 0 {
 		touch := frontier[0]
@@ -48,6 +47,7 @@ func (b *RangeBoard) IsSolved() (bool, error) {
 		b.EachNeighbor(touch, func(c Coord, v Cell) bool {
 			if !reached.Has(c) {
 				frontier = append(frontier, c)
+				reached.Add(c)
 			}
 			return false
 		})
@@ -279,6 +279,9 @@ func (b *RangeBoard) UpdateWingRange(cross *Cross, dir Delta) {
 		}
 		b.SetDirty()
 	}
+	if wing.Min < 0 || wing.Max < 0 {
+		panic("something's neg")
+	}
 	coord := cross.Root.Plus(dir)
 	wingsz := 1
 	fmt.Printf("In UWR, Wing at %s-%s started [%d-%d]\n", cross.Root, wing.Dir, wing.Min, wing.Max)
@@ -304,6 +307,9 @@ func (b *RangeBoard) UpdateWingRange(cross *Cross, dir Delta) {
 		}
 		wingsz++
 		coord = coord.Plus(dir)
+	}
+	if wing.Min < 0 || wing.Max < 0 {
+		panic("after uwr something's neg")
 	}
 	if wing.Min == wing.Max && !wing.IsCapped {
 		b.FinishWing(cross, wing)
@@ -334,6 +340,9 @@ func (b *RangeBoard) ExpandWingTo(c *Cross, w *Wing, sz int) {
 	}
 	fmt.Printf(">>>>>> Expanding wing %s-%s to %d\n", c.Root, w.Dir, sz)
 	w.Min = sz
+	if w.Min < 0 || w.Max < 0 {
+		panic("in ewt something's neg")
+	}
 	b.SetDirty()
 	for i := 1; i <= sz; i++ {
 		b.MarkClear(c.Root.Plus(w.Dir.Times(i)))
@@ -351,6 +360,40 @@ func (b *RangeBoard) ExpandWingMinimums() {
 				fmt.Printf("Wing %s->%s must be at least %d\n", cross.Root, dir, cross.Size-(othersMax+1))
 				b.ExpandWingTo(cross, cross.Wings[dir], cross.Size-(othersMax+1))
 			}
+		}
+	}
+}
+
+func (b *RangeBoard) RestrictWingsForExtending() {
+	for _, c := range b.AllCrosses {
+		for dir, w := range c.Wings {
+			if w.IsCapped {
+				continue
+			}
+			b.RestrictWingForExtending(c, dir)
+		}
+	}
+}
+
+func (b *RangeBoard) RestrictWingForExtending(c *Cross, dir Delta) {
+	// reduce max because max would extend
+	for {
+		nextCell := c.Root.Plus(dir.Times(c.Wings[dir].Max + 1))
+		if b.IsClear(nextCell) {
+			c.Wings[dir].Max--
+			b.SetDirty()
+		} else {
+			break
+		}
+	}
+	// increase min because min would extend
+	for {
+		nextCell := c.Root.Plus(dir.Times(c.Wings[dir].Min + 1))
+		if b.IsClear(nextCell) {
+			c.Wings[dir].Min++
+			b.SetDirty()
+		} else {
+			break
 		}
 	}
 }
@@ -509,7 +552,7 @@ func (b *RangeBoard) UpdateSharedRanges() {
 		coords.Clear()
 		for x := 0; x < b.W; x++ {
 			c := Coord{x, y}
-			if b.IsPainted(c) {
+			if !b.IsClear(c) {
 				b.ShareRangesHorizontal(coords)
 				coords.Clear()
 			} else if b.CrossAt(c) != nil {
@@ -545,28 +588,24 @@ func (b *RangeBoard) ApplyAxisRange(c *Cross, axisMin, axisMax int, dir1, dir2 D
 	// lengthen dir2
 	if c.Wings[dir1].Max+c.Wings[dir2].Min < axisMin {
 		newMin := axisMin - c.Wings[dir1].Max
-		fmt.Printf("Changing %s's Min along %s to %d\n", c.Root, dir2, newMin)
 		c.Wings[dir2].Min = newMin
 		b.SetDirty()
 	}
 	// lengthen dir1
 	if c.Wings[dir2].Max+c.Wings[dir1].Min < axisMin {
 		newMin := axisMin - c.Wings[dir2].Max
-		fmt.Printf("Changing %s's Min along %s to %d\n", c.Root, dir1, newMin)
 		c.Wings[dir1].Min = newMin
 		b.SetDirty()
 	}
 	// shorten dir2
 	if c.Wings[dir1].Min+c.Wings[dir2].Max > axisMax {
 		newMax := axisMax - c.Wings[dir1].Min
-		fmt.Printf("Changing %s's Max along %s to %d\n", c.Root, dir2, newMax)
 		c.Wings[dir2].Max = newMax
 		b.SetDirty()
 	}
 	// shorten dir1
 	if c.Wings[dir2].Min+c.Wings[dir1].Max > axisMax {
 		newMax := axisMax - c.Wings[dir2].Min
-		fmt.Printf("Changing %s's Max along %s to %d\n", c.Root, dir1, newMax)
 		c.Wings[dir1].Max = newMax
 		b.SetDirty()
 	}
@@ -576,10 +615,6 @@ func (b *RangeBoard) ApplyAxisRange(c *Cross, axisMin, axisMax int, dir1, dir2 D
 func (b *RangeBoard) ShareRanges(s *Set[Coord], cross1 Delta, cross2 Delta, shared1 Delta, shared2 Delta) {
 	if s.Size() < 2 {
 		return
-	}
-	fmt.Printf("%s\nShare ranges along %s, %s:\n", b, cross1, cross2)
-	for k, _ := range s.M {
-		fmt.Printf("\t%s %s\n", k, b.CrossAt(k))
 	}
 	first := true
 	axisSharedMin := 0
@@ -621,14 +656,21 @@ func (b *RangeBoard) Solve() {
 		b.ClearDirty()
 		b.UpdateWingRanges()
 		b.ExpandWingMinimums()
+		b.RestrictWingsForExtending()
 		b.CheckCrossMerging()
 		b.UpdateSharedRanges()
 		b.ClearMiniDominators()
 		if b.IsDirty() {
 			continue
 		}
-		b.ClearAllDominators(Coord{0, 0})
-		b.ClearAllDominators(Coord{b.W - 1, b.H - 1})
+		done := 0
+		for c := b.TopLeft(); b.IsValid(c) && done < 2; c = b.Next(c) {
+			if !b.IsClear(c) {
+				continue
+			}
+			b.ClearAllDominators(c)
+			done++
+		}
 	}
 }
 
@@ -697,9 +739,11 @@ func shared() {
 }
 
 func main() {
-	shared()
-	return
+	// shared()
 	// return
+	// return
+	solveit()
+	return
 	inp, err := LoadFile("blank.txt")
 	if err != nil {
 		fmt.Printf("%v\n", err)
@@ -719,7 +763,7 @@ func main() {
 }
 
 func solveit() {
-	inp, err := LoadFile("range1.txt")
+	inp, err := LoadFile("range3.txt")
 	if err != nil {
 		fmt.Printf("%v\n", err)
 		return
