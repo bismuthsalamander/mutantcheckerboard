@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"math/big"
 	"os"
 	"strings"
 )
@@ -11,24 +12,28 @@ func (b *RangeBoard) CrossAt(c Coord) *Cross {
 }
 
 func (b *RangeBoard) IsSolved() (bool, error) {
-	for c := b.TopLeft(); b.IsValid(c); c = b.Next(c) {
-		if b.Get(c) == UNKNOWN {
-			return false, fmt.Errorf("cell %s is unknown", c)
-		}
+	// Are there any remaining unknown cells?
+	res, coord := b.IsComplete()
+	if !res {
+		return false, fmt.Errorf("cell %s is unknown", coord)
 	}
+
+	// Do all the crosses have the right size?
 	for _, cross := range b.AllCrosses {
 		ct := 1
 		for _, dir := range DIRECTIONS {
 			coord := cross.Root.Plus(dir)
-			for b.IsValid(coord) && b.IsClear(coord) {
+			for b.IsClear(coord) {
 				ct++
 				coord = coord.Plus(dir)
 			}
 		}
 		if ct != cross.Size {
-			return false, fmt.Errorf("cross at %s needs %d; has %d", cross.Root, cross.Size, ct)
+			return false, fmt.Errorf("cross at %s needs %d, but has %d", cross.Root, cross.Size, ct)
 		}
 	}
+
+	// Are all clear cells contiguous?
 	reached := NewCoordSet()
 	var start Coord
 	b.EachCell(func(cd Coord, v Cell) bool {
@@ -62,11 +67,9 @@ func (b *RangeBoard) IsSolved() (bool, error) {
 
 func (b *RangeBoard) Mark(c Coord, v Cell) (bool, error) {
 	res, err := b.Set(c, v)
-	if res == false {
+	if !res {
 		return res, err
 	}
-	fmt.Printf("MARKING %s as %s\n", c, v)
-	// fmt.Printf("%s\n", b)
 	b.SetDirty()
 	b.PostMark(c, v)
 	return res, err
@@ -99,7 +102,7 @@ func (c *Cross) String() string {
 }
 
 func (c *Cross) StringVerbose() string {
-	out := fmt.Sprintf("Cross at %s sz %d", c.Root, c.Size)
+	out := fmt.Sprintf("Cross at %s sz %d\n", c.Root, c.Size)
 	for dir, wing := range c.Wings {
 		out += fmt.Sprintf("\tWing %s [%d-%d] capped %v\n", dir, wing.Min, wing.Max, wing.IsCapped)
 	}
@@ -112,6 +115,7 @@ type RangeBoard struct {
 	AllCrosses []*Cross
 }
 
+// Generates an empty 2d slice of pointers to Cross structs.
 func MakeCrosses(w, h int) [][]*Cross {
 	c := make([][]*Cross, 0, h)
 	for i := 0; i < h; i++ {
@@ -120,22 +124,15 @@ func MakeCrosses(w, h int) [][]*Cross {
 	return c
 }
 
-func CharToNum(ch rune) (int, bool) {
-	if ch >= '0' && ch <= '9' {
-		return int(ch - '0'), true
-	}
-	if ch >= 'a' && ch <= 'z' {
-		return int(ch-'a') + 10, true
-	}
-	return 0, false
-}
-
-func (b *RangeBoard) MakeWings(c Coord) map[Delta]*Wing {
+// Generates default wings for an island rooted at c with a size crossSize. Initial values are
+// chosen so that wings cannot run off the board OR exceed the size of the entire cross.
+func (b *RangeBoard) MakeWings(c Coord, crossSize int) map[Delta]*Wing {
+	maxsz := crossSize - 1
 	mp := make(map[Delta]*Wing)
-	mp[LEFT] = &Wing{LEFT, 0, c.X, false}
-	mp[RIGHT] = &Wing{RIGHT, 0, b.W - (c.X + 1), false}
-	mp[UP] = &Wing{UP, 0, c.Y, false}
-	mp[DOWN] = &Wing{DOWN, 0, b.H - (c.Y + 1), false}
+	mp[LEFT] = &Wing{LEFT, 0, min(maxsz, c.X), false}
+	mp[RIGHT] = &Wing{RIGHT, 0, min(maxsz, b.W-(c.X+1)), false}
+	mp[UP] = &Wing{UP, 0, min(maxsz, c.Y), false}
+	mp[DOWN] = &Wing{DOWN, 0, min(maxsz, b.H-(c.Y+1)), false}
 	return mp
 }
 
@@ -143,11 +140,11 @@ func (b *RangeBoard) String() string {
 	out := "+" + strings.Repeat("-", b.W) + "+\n"
 	for y, row := range b.Grid {
 		out += "|"
-		for x, cell := range row {
+		for x := range row {
 			if b.Crosses[y][x] != nil {
 				out += b.Crosses[y][x].String()
 			} else {
-				out += cell.String()
+				out += b.Get(Coord{x, y}).String()
 			}
 		}
 		out += "|"
@@ -172,20 +169,6 @@ func (b *RangeBoard) StringVerbose() string {
 }
 
 func (b *RangeBoard) PostMark(c Coord, v Cell) {
-	/**
-	If painted:
-		mark adj clear
-		limit wing maxes along all four axes (THIS CAN STOP AFTER ENCOUNTERING ANOTHER PAINTED CELL)
-	If clear:
-		increase minimum size along all four axes until we meet a non-clear cell
-
-	SHORTCUT
-
-	If painted:
-		mark adj clear
-	traverse four axes until we find a painted cell
-	for each cross found, update its wing sizes?
-	*/
 	// Clear adjacent cells to paint
 	if v == PAINTED {
 		b.EachNeighbor(c, func(n Coord, v Cell) bool {
@@ -193,6 +176,8 @@ func (b *RangeBoard) PostMark(c Coord, v Cell) {
 			return false
 		})
 	}
+	// We skip updates of adjacent crosses if we haven't finished initializing the board; else,
+	// the wing range updates would be inaccurate
 	if !b.InitDone() {
 		return
 	}
@@ -207,7 +192,7 @@ func (b *RangeBoard) PostMark(c Coord, v Cell) {
 	}
 }
 
-func (b *RangeBoard) CheckAllCaps(c *Cross) {
+func (b *RangeBoard) CheckAllWingCaps(c *Cross) {
 	for _, w := range c.Wings {
 		if w.Min == w.Max && !w.IsCapped {
 			b.FinishWing(c, w)
@@ -215,6 +200,7 @@ func (b *RangeBoard) CheckAllCaps(c *Cross) {
 	}
 }
 
+// Mark this wing as capped, and mark the cross as capped if each of its wings is capped.
 func (c *Cross) MarkWingCapped(w *Wing) {
 	w.IsCapped = true
 	for _, wg := range c.Wings {
@@ -225,14 +211,28 @@ func (c *Cross) MarkWingCapped(w *Wing) {
 	c.IsCapped = true
 }
 
+// If the wing's min and max are wider than the arguments, tighten the wing's range.
+func (b *RangeBoard) LimitWing(w *Wing, min, max int) {
+	if w.Min < min {
+		w.Min = min
+		b.SetDirty()
+	}
+	if w.Max > max {
+		w.Max = max
+		b.SetDirty()
+	}
+}
+
+// This function completes each wing of the cross, using each wing's current Min as its Max size.
 func (b *RangeBoard) FinishCross(cross *Cross) {
-	// fmt.Printf("Finishing cross at %s\n", cross.Root)
 	for _, wing := range cross.Wings {
 		wing.Max = wing.Min
 		b.FinishWing(cross, wing)
 	}
 }
 
+// Run this function when we know the wing must have size exactly equal to its Min. FinishWing will
+// fill in the clear cells and the painted "cap."
 func (b *RangeBoard) FinishWing(cross *Cross, w *Wing) {
 	coord := cross.Root
 	for i := 1; i <= w.Min; i++ {
@@ -256,48 +256,44 @@ func (b *RangeBoard) UpdateWingRange(cross *Cross, dir Delta) {
 		return
 	}
 	wing := cross.Wings[dir]
-	otherWingsMax := 1
-	otherWingsMin := 1
+	if wing.IsCapped {
+		return
+	}
+	// Calculate range of possible sizes of this wing based on other wings' ranges
+	myWingMax := cross.Size - 1
+	myWingMin := cross.Size - 1
 	for od, ow := range cross.Wings {
 		if od == dir {
 			continue
 		}
-		otherWingsMax += ow.Max
-		otherWingsMin += ow.Min
+		myWingMax -= ow.Min
+		myWingMin -= ow.Max
 	}
-	if wing.Min+otherWingsMax < cross.Size && wing.Min < cross.Size-otherWingsMax {
-		wing.Min = cross.Size - otherWingsMax
-		if wing.Min > wing.Max {
-			panic("wat min>max")
-		}
-		b.SetDirty()
+	if myWingMax < 0 || myWingMin > myWingMax {
+		panic(fmt.Sprintf("cross %s (%d) wants [%d,%d] in dir %s?", cross.Root, cross.Size, myWingMin, myWingMax, dir))
 	}
-	if wing.Max+otherWingsMin > cross.Size && otherWingsMin < cross.Size && wing.Max > cross.Size-otherWingsMin {
-		wing.Max = cross.Size - otherWingsMin
-		if wing.Min > wing.Max {
-			panic("wat min>max")
-		}
-		b.SetDirty()
-	}
+	b.LimitWing(wing, myWingMin, myWingMax)
 	if wing.Min < 0 || wing.Max < 0 {
 		panic("something's neg")
 	}
+
+	// Update min and max to match reality (i.e., if there's a painted cell along dir, decrease Max
+	// so that the wing can't extend past that painted cell; if there is a contiguous block of
+	// clear cells larger than Min, increate Min accordingly).
 	coord := cross.Root.Plus(dir)
 	wingsz := 1
-	fmt.Printf("In UWR, Wing at %s-%s started [%d-%d]\n", cross.Root, wing.Dir, wing.Min, wing.Max)
+
+	// Stop increasing Min once we've seen the first unknown cell. Track with the allClear flag.
 	allClear := true
+	myWingMin = wing.Min
+	myWingMax = wing.Max
 	for b.IsValid(coord) && wingsz <= wing.Max {
 		if b.IsClear(coord) {
-			if allClear && wingsz > wing.Min {
-				wing.Min = wingsz
-				b.SetDirty()
+			if allClear {
+				myWingMin = wingsz
 			}
 		} else if b.IsPainted(coord) {
-			wingsz--
-			if wingsz < wing.Max {
-				wing.Max = wingsz
-				b.SetDirty()
-			}
+			myWingMax = wingsz - 1
 			break
 		} else if b.IsUnknown(coord) {
 			if wingsz <= wing.Min && allClear {
@@ -308,6 +304,7 @@ func (b *RangeBoard) UpdateWingRange(cross *Cross, dir Delta) {
 		wingsz++
 		coord = coord.Plus(dir)
 	}
+	b.LimitWing(wing, myWingMin, myWingMax)
 	if wing.Min < 0 || wing.Max < 0 {
 		panic("after uwr something's neg")
 	}
@@ -324,42 +321,14 @@ func (b *RangeBoard) UpdateWingRanges() {
 		for _, dir := range DIRECTIONS {
 			b.UpdateWingRange(cross, dir)
 		}
+
+		// If our wing minimums are enough to fill the cross, the corss is done.
 		sz := 1
 		for _, wing := range cross.Wings {
 			sz += wing.Min
 		}
 		if sz == cross.Size {
 			b.FinishCross(cross)
-		}
-	}
-}
-
-func (b *RangeBoard) ExpandWingTo(c *Cross, w *Wing, sz int) {
-	if w.Min >= sz {
-		return
-	}
-	fmt.Printf(">>>>>> Expanding wing %s-%s to %d\n", c.Root, w.Dir, sz)
-	w.Min = sz
-	if w.Min < 0 || w.Max < 0 {
-		panic("in ewt something's neg")
-	}
-	b.SetDirty()
-	for i := 1; i <= sz; i++ {
-		b.MarkClear(c.Root.Plus(w.Dir.Times(i)))
-	}
-}
-
-func (b *RangeBoard) ExpandWingMinimums() {
-	for _, cross := range b.AllCrosses {
-		if cross.IsCapped {
-			continue
-		}
-		for _, dir := range DIRECTIONS {
-			othersMax := cross.Wings[dir.TurnCW()].Max + cross.Wings[dir.TurnCCW()].Max + cross.Wings[dir.Reverse()].Max
-			if othersMax+1 < cross.Size {
-				fmt.Printf("Wing %s->%s must be at least %d\n", cross.Root, dir, cross.Size-(othersMax+1))
-				b.ExpandWingTo(cross, cross.Wings[dir], cross.Size-(othersMax+1))
-			}
 		}
 	}
 }
@@ -379,25 +348,26 @@ func (b *RangeBoard) RestrictWingForExtending(c *Cross, dir Delta) {
 	// reduce max because max would extend
 	for {
 		nextCell := c.Root.Plus(dir.Times(c.Wings[dir].Max + 1))
-		if b.IsClear(nextCell) {
-			c.Wings[dir].Max--
-			b.SetDirty()
-		} else {
+		if !b.IsClear(nextCell) {
 			break
 		}
+		c.Wings[dir].Max--
+		b.SetDirty()
 	}
 	// increase min because min would extend
 	for {
 		nextCell := c.Root.Plus(dir.Times(c.Wings[dir].Min + 1))
-		if b.IsClear(nextCell) {
-			c.Wings[dir].Min++
-			b.SetDirty()
-		} else {
+		if !b.IsClear(nextCell) {
 			break
 		}
+		c.Wings[dir].Min++
+		b.SetDirty()
 	}
 }
 
+// TODO: I think we can unify some of these range checks?
+// If extending cross C's wing would cause it to merge with cross D, and cross D can't extend that
+// far, we need to reduce C's wing's Max so that it can't merge with D anymore.
 func (b *RangeBoard) CheckCrossMerging() {
 	for _, cross := range b.AllCrosses {
 		if cross.IsCapped {
@@ -423,28 +393,18 @@ func (b *RangeBoard) CheckCrossMerging() {
 					ncWing := nc.Wings[dir.Reverse()]
 					dist := nc.Root.MHDist(oppWingEnd)
 					if ncWing.Max < dist {
-						// fmt.Printf("Board:\n%s\n", b)
-						// fmt.Printf("Reducing max of cross at %s to %d because of merge with cross at %s\n", cross.Root, trywinglen-1, nc.Root)
-						// fmt.Printf("Expanding cross at %s in dir %s\n", cross.Root, dir)
-						// fmt.Printf("At winglen %d, merges with nc at %s\n", trywinglen, nc.Root)
-						// fmt.Printf("That would make neighbor wing %s at least %d long; max is %d", dir.Reverse(), dist, ncWing.Max)
 						w.Max = trywinglen - 1
 						b.SetDirty()
 						break oneWing
 					}
 				}
 			}
-			// loop N = [Min, Max]
-			// let winglen = cross.Wings[dir.Reverse()] + 1 +
-			// start at Root + dir * (N+1)
-			// continue until non-clear; keep a slice of all crosses encountered
-			//
-			// for each of these neighbors
-			// see if neighbor.Wings[dir.Reverse()].Min
 		}
 	}
 }
 
+// Looks for clear cells with one liberty and marks the liberty as clear. Limited case of
+// ClearAllDominators below.
 func (b *RangeBoard) ClearMiniDominators() {
 	b.EachCell(func(c Coord, v Cell) bool {
 		if v != CLEAR {
@@ -469,6 +429,14 @@ func (b *RangeBoard) ClearMiniDominators() {
 	})
 }
 
+// In graph theory, a DAG node D is a dominator of sink S w/r/t an origin O if every path from O
+// to S must include D. Consider a graph whose nodes are non-painted (i.e., painted and unknown)
+// cells and whose edges are orthogonal adjacency relationships. If D dominates ANY other node
+// for ANY origin, then D is a "choke point" that must be clear in order for the board to satisfy
+// the constraint that the clear cells must form a contiguous group. This function implements the
+// first algorithm shown here: https://en.wikipedia.org/wiki/Dominator_(graph_theory)#Algorithms
+// Note that we have to call this function twice. By definition, a node dominates itself, so by
+// calling the function with two different source nodes, we are sure to find every dominator.
 func (b *RangeBoard) ClearAllDominators(start Coord) {
 	doms := make([][]*Set[Coord], 0)
 	for y := 0; y < b.H; y++ {
@@ -517,14 +485,9 @@ func (b *RangeBoard) ClearAllDominators(start Coord) {
 		}
 	}
 	for c := b.TopLeft(); b.IsValid(c); c = b.Next(c) {
-		if doms[c.Y][c.X] == nil {
-			continue
-		}
-		if doms[c.Y][c.X].Size() >= 3 {
-			fmt.Printf("COordinate %s has %d dominators:\n", c, doms[c.Y][c.X].Size())
-			for k, _ := range doms[c.Y][c.X].M {
+		if doms[c.Y][c.X] != nil && doms[c.Y][c.X].Size() >= 3 {
+			for k := range doms[c.Y][c.X].M {
 				if k != start && k != c {
-					fmt.Printf("\t%s\n", k)
 					b.MarkClear(k)
 				}
 			}
@@ -532,6 +495,7 @@ func (b *RangeBoard) ClearAllDominators(start Coord) {
 	}
 }
 
+// Detects crosses that are connected along one axis and cross-enforces limitations
 func (b *RangeBoard) UpdateSharedRanges() {
 	coords := NewCoordSet()
 	for x := 0; x < b.W; x++ {
@@ -585,30 +549,12 @@ each cross must:
 */
 
 func (b *RangeBoard) ApplyAxisRange(c *Cross, axisMin, axisMax int, dir1, dir2 Delta) {
-	// lengthen dir2
-	if c.Wings[dir1].Max+c.Wings[dir2].Min < axisMin {
-		newMin := axisMin - c.Wings[dir1].Max
-		c.Wings[dir2].Min = newMin
-		b.SetDirty()
-	}
-	// lengthen dir1
-	if c.Wings[dir2].Max+c.Wings[dir1].Min < axisMin {
-		newMin := axisMin - c.Wings[dir2].Max
-		c.Wings[dir1].Min = newMin
-		b.SetDirty()
-	}
-	// shorten dir2
-	if c.Wings[dir1].Min+c.Wings[dir2].Max > axisMax {
-		newMax := axisMax - c.Wings[dir1].Min
-		c.Wings[dir2].Max = newMax
-		b.SetDirty()
-	}
-	// shorten dir1
-	if c.Wings[dir2].Min+c.Wings[dir1].Max > axisMax {
-		newMax := axisMax - c.Wings[dir2].Min
-		c.Wings[dir1].Max = newMax
-		b.SetDirty()
-	}
+	min2 := axisMin - c.Wings[dir1].Max
+	min1 := axisMin - c.Wings[dir2].Max
+	max2 := axisMax - c.Wings[dir1].Min
+	max1 := axisMax - c.Wings[dir2].Min
+	b.LimitWing(c.Wings[dir1], min1, max1)
+	b.LimitWing(c.Wings[dir2], min2, max2)
 }
 
 // TODO: change this to track axis mins and maxes on cross struct
@@ -653,9 +599,9 @@ func (b *RangeBoard) ShareRanges(s *Set[Coord], cross1 Delta, cross2 Delta, shar
 func (b *RangeBoard) Solve() {
 	b.SetDirty()
 	for b.IsDirty() {
+		fmt.Printf("Possibilities: %d\n", b.NumPossibilities())
 		b.ClearDirty()
 		b.UpdateWingRanges()
-		b.ExpandWingMinimums()
 		b.RestrictWingsForExtending()
 		b.CheckCrossMerging()
 		b.UpdateSharedRanges()
@@ -665,11 +611,10 @@ func (b *RangeBoard) Solve() {
 		}
 		done := 0
 		for c := b.TopLeft(); b.IsValid(c) && done < 2; c = b.Next(c) {
-			if !b.IsClear(c) {
-				continue
+			if b.IsClear(c) {
+				b.ClearAllDominators(c)
+				done++
 			}
-			b.ClearAllDominators(c)
-			done++
 		}
 	}
 }
@@ -688,13 +633,12 @@ func RangeBoardFromLines(input []string) *RangeBoard {
 				rg.Crosses[y][x] = &Cross{
 					Root:     c,
 					Size:     val,
-					Wings:    rg.MakeWings(c),
+					Wings:    rg.MakeWings(c, val),
 					IsCapped: false,
 				}
 				rg.AllCrosses = append(rg.AllCrosses, rg.Crosses[y][x])
 				rg.MarkClear(c)
-				fmt.Printf("coord (%d,%d)\n", x, y)
-				rg.CheckAllCaps(rg.Crosses[y][x])
+				rg.CheckAllWingCaps(rg.Crosses[y][x])
 			}
 		}
 	}
@@ -733,7 +677,6 @@ func shared() {
 	b.UpdateWingRanges()
 	b.UpdateSharedRanges()
 	fmt.Printf("%s\n", b.StringVerbose())
-	b.ExpandWingMinimums()
 	b.UpdateWingRanges()
 	fmt.Printf("%s\n", b.StringVerbose())
 }
@@ -762,14 +705,45 @@ func main() {
 	fmt.Printf("%s\n", b.String())
 }
 
+func (c *Cross) NumPossibilities() uint64 {
+	ct := uint64(0)
+	for left := c.Wings[LEFT].Min; left <= c.Wings[LEFT].Max; left++ {
+		for up := c.Wings[UP].Min; up <= c.Wings[UP].Max; up++ {
+			for right := c.Wings[RIGHT].Min; right <= c.Wings[RIGHT].Max; right++ {
+				down := c.Size - (left + up + right + 1)
+				if down >= c.Wings[DOWN].Min && down <= c.Wings[DOWN].Max {
+					ct++
+				}
+			}
+		}
+	}
+	return ct
+}
+
+func (b *RangeBoard) NumPossibilities() *big.Int {
+	tot := big.NewInt(1)
+	for _, c := range b.AllCrosses {
+		if !c.IsCapped {
+			tot.Mul(tot, big.NewInt(int64(c.NumPossibilities())))
+		}
+	}
+	return tot
+}
+
 func solveit() {
-	inp, err := LoadFile("range3.txt")
+	inp, err := LoadFile("range5.txt")
 	if err != nil {
 		fmt.Printf("%v\n", err)
 		return
 	}
 	b := RangeBoardFromLines(inp)
-
+	// tot := 1
+	// for _, c := range b.AllCrosses {
+	// 	// fmt.Printf("%s (%d) %d\n", c.Root, c.Size, c.NumPossibilities())
+	// 	tot *= c.NumPossibilities()
+	// }
+	// fmt.Printf("TOTAL: %d\n", tot)
+	// return
 	fmt.Printf("%s\n", b.StringVerbose())
 	b.Solve()
 	fmt.Printf("*********************************************************\n%s\n", b.StringVerbose())
