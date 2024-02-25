@@ -23,6 +23,7 @@ type RectBoard struct {
 	W      int
 	H      int
 	Grid   [][]Cell
+	Guess  [][]Cell
 	Dirty  bool
 	Inited bool
 }
@@ -31,9 +32,10 @@ func RectBoardFromLines(input []string) *RectBoard {
 	w := len(input[0])
 	h := len(input)
 	return &RectBoard{
-		W:    w,
-		H:    h,
-		Grid: MakeGrid(w, h),
+		W:     w,
+		H:     h,
+		Grid:  MakeGrid(w, h),
+		Guess: MakeGrid(w, h),
 	}
 }
 
@@ -67,7 +69,16 @@ func (b *RectBoard) IsDirty() bool {
 }
 
 func (b *RectBoard) Get(c Coord) Cell {
+	if b.Guess[c.Y][c.X] != UNKNOWN {
+		return b.Guess[c.Y][c.X]
+	}
 	return b.Grid[c.Y][c.X]
+}
+
+func (b *RectBoard) ClearGuess() {
+	for c := b.TopLeft(); b.IsValid(c); c = b.Next(c) {
+		b.Guess[c.Y][c.X] = UNKNOWN
+	}
 }
 
 func (b *RectBoard) IsPainted(c Coord) bool {
@@ -82,15 +93,15 @@ func (b *RectBoard) IsUnknown(c Coord) bool {
 func (b *RectBoard) IsValid(c Coord) bool {
 	return c.X >= 0 && c.Y >= 0 && c.X < b.W && c.Y < b.H
 }
-func (b *RectBoard) IsComplete() bool {
-	for _, row := range b.Grid {
-		for _, cell := range row {
+func (b *RectBoard) IsComplete() (bool, Coord) {
+	for y, row := range b.Grid {
+		for x, cell := range row {
 			if cell == UNKNOWN {
-				return false
+				return false, Coord{x, y}
 			}
 		}
 	}
-	return true
+	return true, Coord{}
 }
 func (b *RectBoard) IsSolved() bool {
 	return false

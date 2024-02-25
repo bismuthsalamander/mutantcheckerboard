@@ -125,6 +125,16 @@ func NumToCh(n int) rune {
 	return '?'
 }
 
+func CharToNum(ch rune) (int, bool) {
+	if ch >= '0' && ch <= '9' {
+		return int(ch - '0'), true
+	}
+	if ch >= 'a' && ch <= 'z' {
+		return int(ch-'a') + 10, true
+	}
+	return 0, false
+}
+
 func MakeGrid(w, h int) [][]Cell {
 	g := make([][]Cell, 0, h)
 	for i := 0; i < int(h); i++ {
