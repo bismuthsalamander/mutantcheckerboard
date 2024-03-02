@@ -6,11 +6,11 @@ import (
 	"strings"
 )
 
-func (b *RangeBoard) CrossAt(c Coord) *Cross {
+func (b *KuromasuBoard) CrossAt(c Coord) *Cross {
 	return b.Crosses[c.Y][c.X]
 }
 
-func (b *RangeBoard) IsSolved() (bool, error) {
+func (b *KuromasuBoard) IsSolved() (bool, error) {
 	// Are there any remaining unknown cells?
 	res, coord := b.IsComplete()
 	if !res {
@@ -64,7 +64,7 @@ func (b *RangeBoard) IsSolved() (bool, error) {
 	return true, nil
 }
 
-func (b *RangeBoard) Mark(c Coord, v Cell) (bool, error) {
+func (b *KuromasuBoard) Mark(c Coord, v Cell) (bool, error) {
 	res, err := b.Set(c, v)
 	if !res {
 		return res, err
@@ -74,11 +74,11 @@ func (b *RangeBoard) Mark(c Coord, v Cell) (bool, error) {
 	return res, err
 }
 
-func (b *RangeBoard) MarkPainted(c Coord) (bool, error) {
+func (b *KuromasuBoard) MarkPainted(c Coord) (bool, error) {
 	return b.Mark(c, PAINTED)
 }
 
-func (b *RangeBoard) MarkClear(c Coord) (bool, error) {
+func (b *KuromasuBoard) MarkClear(c Coord) (bool, error) {
 	return b.Mark(c, CLEAR)
 }
 
@@ -108,7 +108,7 @@ func (c *Cross) StringVerbose() string {
 	return out[:len(out)-1]
 }
 
-type RangeBoard struct {
+type KuromasuBoard struct {
 	RectBoard
 	Crosses    [][]*Cross
 	AllCrosses []*Cross
@@ -125,7 +125,7 @@ func MakeCrosses(w, h int) [][]*Cross {
 
 // Generates default wings for an island rooted at c with a size crossSize. Initial values are
 // chosen so that wings cannot run off the board OR exceed the size of the entire cross.
-func (b *RangeBoard) MakeWings(c Coord, crossSize int) map[Delta]*Wing {
+func (b *KuromasuBoard) MakeWings(c Coord, crossSize int) map[Delta]*Wing {
 	maxsz := crossSize - 1
 	mp := make(map[Delta]*Wing)
 	mp[LEFT] = &Wing{LEFT, 0, min(maxsz, c.X), false}
@@ -135,7 +135,7 @@ func (b *RangeBoard) MakeWings(c Coord, crossSize int) map[Delta]*Wing {
 	return mp
 }
 
-func (b *RangeBoard) String() string {
+func (b *KuromasuBoard) String() string {
 	out := "+" + strings.Repeat("-", b.W) + "+\n"
 	for y, row := range b.Grid {
 		out += "|"
@@ -155,7 +155,7 @@ func (b *RangeBoard) String() string {
 	return out
 }
 
-func (b *RangeBoard) StringVerbose() string {
+func (b *KuromasuBoard) StringVerbose() string {
 	out := b.String()
 	out += "\n\nCrosses:\n"
 	for _, cross := range b.AllCrosses {
@@ -167,7 +167,7 @@ func (b *RangeBoard) StringVerbose() string {
 	return out
 }
 
-func (b *RangeBoard) PostMark(c Coord, v Cell) {
+func (b *KuromasuBoard) PostMark(c Coord, v Cell) {
 	// Clear adjacent cells to paint
 	if v == PAINTED {
 		b.EachNeighbor(c, func(n Coord, v Cell) bool {
@@ -191,7 +191,7 @@ func (b *RangeBoard) PostMark(c Coord, v Cell) {
 	}
 }
 
-func (b *RangeBoard) CheckAllWingCaps(c *Cross) {
+func (b *KuromasuBoard) CheckAllWingCaps(c *Cross) {
 	for _, w := range c.Wings {
 		if w.Min == w.Max && !w.IsCapped {
 			b.FinishWing(c, w)
@@ -211,7 +211,7 @@ func (c *Cross) MarkWingCapped(w *Wing) {
 }
 
 // If the wing's min and max are wider than the arguments, tighten the wing's range.
-func (b *RangeBoard) LimitWing(w *Wing, min, max int) {
+func (b *KuromasuBoard) LimitWing(w *Wing, min, max int) {
 	if w.Min < min {
 		w.Min = min
 		b.SetDirty()
@@ -223,7 +223,7 @@ func (b *RangeBoard) LimitWing(w *Wing, min, max int) {
 }
 
 // This function completes each wing of the cross, using each wing's current Min as its Max size.
-func (b *RangeBoard) FinishCross(cross *Cross) {
+func (b *KuromasuBoard) FinishCross(cross *Cross) {
 	for _, wing := range cross.Wings {
 		wing.Max = wing.Min
 		b.FinishWing(cross, wing)
@@ -232,7 +232,7 @@ func (b *RangeBoard) FinishCross(cross *Cross) {
 
 // Run this function when we know the wing must have size exactly equal to its Min. FinishWing will
 // fill in the clear cells and the painted "cap."
-func (b *RangeBoard) FinishWing(cross *Cross, w *Wing) {
+func (b *KuromasuBoard) FinishWing(cross *Cross, w *Wing) {
 	coord := cross.Root
 	for i := 1; i <= w.Min; i++ {
 		coord = coord.Plus(w.Dir)
@@ -250,7 +250,7 @@ func (b *RangeBoard) FinishWing(cross *Cross, w *Wing) {
 	cross.MarkWingCapped(w)
 }
 
-func (b *RangeBoard) UpdateWingRange(cross *Cross, dir Delta) {
+func (b *KuromasuBoard) UpdateWingRange(cross *Cross, dir Delta) {
 	if cross == nil {
 		return
 	}
@@ -258,6 +258,7 @@ func (b *RangeBoard) UpdateWingRange(cross *Cross, dir Delta) {
 	if wing.IsCapped {
 		return
 	}
+
 	// Calculate range of possible sizes of this wing based on other wings' ranges
 	myWingMax := cross.Size - 1
 	myWingMin := cross.Size - 1
@@ -312,7 +313,7 @@ func (b *RangeBoard) UpdateWingRange(cross *Cross, dir Delta) {
 	}
 }
 
-func (b *RangeBoard) UpdateWingRanges() {
+func (b *KuromasuBoard) UpdateWingRanges() {
 	for _, cross := range b.AllCrosses {
 		if cross.IsCapped {
 			continue
@@ -332,7 +333,7 @@ func (b *RangeBoard) UpdateWingRanges() {
 	}
 }
 
-func (b *RangeBoard) RestrictWingsForExtending() {
+func (b *KuromasuBoard) RestrictWingsForExtending() {
 	for _, c := range b.AllCrosses {
 		for dir, w := range c.Wings {
 			if w.IsCapped {
@@ -343,7 +344,7 @@ func (b *RangeBoard) RestrictWingsForExtending() {
 	}
 }
 
-func (b *RangeBoard) RestrictWingForExtending(c *Cross, dir Delta) {
+func (b *KuromasuBoard) RestrictWingForExtending(c *Cross, dir Delta) {
 	// reduce max because max would extend
 	for {
 		nextCell := c.Root.Plus(dir.Times(c.Wings[dir].Max + 1))
@@ -367,7 +368,7 @@ func (b *RangeBoard) RestrictWingForExtending(c *Cross, dir Delta) {
 // TODO: I think we can unify some of these range checks?
 // If extending cross C's wing would cause it to merge with cross D, and cross D can't extend that
 // far, we need to reduce C's wing's Max so that it can't merge with D anymore.
-func (b *RangeBoard) CheckCrossMerging() {
+func (b *KuromasuBoard) CheckCrossMerging() {
 	for _, cross := range b.AllCrosses {
 		if cross.IsCapped {
 			continue
@@ -404,7 +405,7 @@ func (b *RangeBoard) CheckCrossMerging() {
 
 // Looks for clear cells with one liberty and marks the liberty as clear. Limited case of
 // ClearAllDominators below.
-func (b *RangeBoard) ClearMiniDominators() {
+func (b *KuromasuBoard) ClearMiniDominators() {
 	b.EachCell(func(c Coord, v Cell) bool {
 		if v != CLEAR {
 			return false
@@ -436,7 +437,7 @@ func (b *RangeBoard) ClearMiniDominators() {
 // first algorithm shown here: https://en.wikipedia.org/wiki/Dominator_(graph_theory)#Algorithms
 // Note that we have to call this function twice. By definition, a node dominates itself, so by
 // calling the function with two different source nodes, we are sure to find every dominator.
-func (b *RangeBoard) ClearAllDominators(start Coord) {
+func (b *KuromasuBoard) ClearAllDominators(start Coord) {
 	doms := make([][]*Set[Coord], 0)
 	for y := 0; y < b.H; y++ {
 		doms = append(doms, make([]*Set[Coord], b.H))
@@ -495,7 +496,7 @@ func (b *RangeBoard) ClearAllDominators(start Coord) {
 }
 
 // Detects crosses that are connected along one axis and cross-enforces limitations
-func (b *RangeBoard) UpdateSharedRanges() {
+func (b *KuromasuBoard) UpdateSharedRanges() {
 	coords := NewCoordSet()
 	for x := 0; x < b.W; x++ {
 		coords.Clear()
@@ -526,11 +527,11 @@ func (b *RangeBoard) UpdateSharedRanges() {
 	}
 }
 
-func (b *RangeBoard) ShareRangesVertical(s *Set[Coord]) {
+func (b *KuromasuBoard) ShareRangesVertical(s *Set[Coord]) {
 	b.ShareRanges(s, LEFT, RIGHT, UP, DOWN)
 }
 
-func (b *RangeBoard) ShareRangesHorizontal(s *Set[Coord]) {
+func (b *KuromasuBoard) ShareRangesHorizontal(s *Set[Coord]) {
 	b.ShareRanges(s, UP, DOWN, LEFT, RIGHT)
 }
 
@@ -547,7 +548,7 @@ each cross must:
   - have its own cross-axis required between its two cross-wings
 */
 
-func (b *RangeBoard) ApplyAxisRange(c *Cross, axisMin, axisMax int, dir1, dir2 Delta) {
+func (b *KuromasuBoard) ApplyAxisRange(c *Cross, axisMin, axisMax int, dir1, dir2 Delta) {
 	min2 := axisMin - c.Wings[dir1].Max
 	min1 := axisMin - c.Wings[dir2].Max
 	max2 := axisMax - c.Wings[dir1].Min
@@ -557,7 +558,7 @@ func (b *RangeBoard) ApplyAxisRange(c *Cross, axisMin, axisMax int, dir1, dir2 D
 }
 
 // TODO: change this to track axis mins and maxes on cross struct
-func (b *RangeBoard) ShareRanges(s *Set[Coord], cross1 Delta, cross2 Delta, shared1 Delta, shared2 Delta) {
+func (b *KuromasuBoard) ShareRanges(s *Set[Coord], cross1 Delta, cross2 Delta, shared1 Delta, shared2 Delta) {
 	if s.Size() < 2 {
 		return
 	}
@@ -595,7 +596,7 @@ func (b *RangeBoard) ShareRanges(s *Set[Coord], cross1 Delta, cross2 Delta, shar
 	}
 }
 
-func (b *RangeBoard) Solve() {
+func (b *KuromasuBoard) Solve() {
 	b.SetDirty()
 	for b.IsDirty() {
 		fmt.Printf("Possibilities: %d\n", b.NumPossibilities())
@@ -618,9 +619,9 @@ func (b *RangeBoard) Solve() {
 	}
 }
 
-func RangeBoardFromLines(input []string) *RangeBoard {
+func KuromasuBoardFromLines(input []string) *KuromasuBoard {
 	rect := RectBoardFromLines(input)
-	rg := RangeBoard{
+	rg := KuromasuBoard{
 		RectBoard:  *rect,
 		Crosses:    MakeCrosses(rect.W, rect.H),
 		AllCrosses: make([]*Cross, 0),
@@ -660,7 +661,7 @@ func (c *Cross) NumPossibilities() uint64 {
 	return ct
 }
 
-func (b *RangeBoard) NumPossibilities() *big.Int {
+func (b *KuromasuBoard) NumPossibilities() *big.Int {
 	tot := big.NewInt(1)
 	for _, c := range b.AllCrosses {
 		if !c.IsCapped {
