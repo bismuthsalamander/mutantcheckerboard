@@ -6,6 +6,26 @@ import (
 	"strings"
 )
 
+type KuromasuBoard struct {
+	RectBinBoard
+	Crosses    [][]*Cross
+	AllCrosses []*Cross
+}
+
+type Cross struct {
+	Root     Coord
+	Size     int
+	Wings    map[Delta]*Wing
+	IsCapped bool
+}
+
+type Wing struct {
+	Dir      Delta
+	Min      int
+	Max      int
+	IsCapped bool
+}
+
 func (b *KuromasuBoard) CrossAt(c Coord) *Cross {
 	return b.Crosses[c.Y][c.X]
 }
@@ -82,22 +102,8 @@ func (b *KuromasuBoard) MarkClear(c Coord) (bool, error) {
 	return b.Mark(c, CLEAR)
 }
 
-type Wing struct {
-	Dir      Delta
-	Min      int
-	Max      int
-	IsCapped bool
-}
-
-type Cross struct {
-	Root     Coord
-	Size     int
-	Wings    map[Delta]*Wing
-	IsCapped bool
-}
-
 func (c *Cross) String() string {
-	return fmt.Sprintf("%c", NumToCh(c.Size))
+	return fmt.Sprintf("%c", IntToCh(c.Size))
 }
 
 func (c *Cross) StringVerbose() string {
@@ -106,12 +112,6 @@ func (c *Cross) StringVerbose() string {
 		out += fmt.Sprintf("\tWing %s [%d-%d] capped %v\n", dir, wing.Min, wing.Max, wing.IsCapped)
 	}
 	return out[:len(out)-1]
-}
-
-type KuromasuBoard struct {
-	RectBoard
-	Crosses    [][]*Cross
-	AllCrosses []*Cross
 }
 
 // Generates an empty 2d slice of pointers to Cross structs.
@@ -620,11 +620,11 @@ func (b *KuromasuBoard) Solve() {
 }
 
 func KuromasuBoardFromLines(input []string) *KuromasuBoard {
-	rect := RectBoardFromLines(input)
+	rect := RectBinBoardFromLines(input)
 	rg := KuromasuBoard{
-		RectBoard:  *rect,
-		Crosses:    MakeCrosses(rect.W, rect.H),
-		AllCrosses: make([]*Cross, 0),
+		RectBinBoard: *rect,
+		Crosses:      MakeCrosses(rect.W, rect.H),
+		AllCrosses:   make([]*Cross, 0),
 	}
 	for y, row := range input {
 		for x, ch := range row {

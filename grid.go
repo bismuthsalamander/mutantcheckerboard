@@ -116,7 +116,7 @@ func (c Cell) String() string {
 	return string(c.Ch())
 }
 
-func NumToCh(n int) rune {
+func IntToCh(n int) rune {
 	if n < 10 {
 		return rune(int('0') + n)
 	} else if n <= 35 {
@@ -139,6 +139,36 @@ func MakeGrid(w, h int) [][]Cell {
 	g := make([][]Cell, 0, h)
 	for i := 0; i < int(h); i++ {
 		g = append(g, make([]Cell, w))
+	}
+	return g
+}
+
+func MakeNumGrid(w, h int) [][]int {
+	g := make([][]int, 0, h)
+	for i := 0; i < int(h); i++ {
+		g = append(g, make([]int, w))
+	}
+	return g
+}
+
+func MakeRegionGrid(w, h int) [][][]*[]Coord {
+	g := make([][][]*[]Coord, 0, h)
+	for i := 0; i < int(h); i++ {
+		g = append(g, make([][]*[]Coord, 0, w))
+		for j := 0; j < w; j++ {
+			g[i] = append(g[i], make([]*[]Coord, 0))
+		}
+	}
+	return g
+}
+
+func MakeAllowedSets(w, h int, order int) [][]*Set[int] {
+	g := make([][]*Set[int], 0, h)
+	for i := 0; i < h; i++ {
+		g = append(g, make([]*Set[int], 0, w))
+		for j := 0; j < w; j++ {
+			g[i] = append(g[i], NewNumSet(order))
+		}
 	}
 	return g
 }
