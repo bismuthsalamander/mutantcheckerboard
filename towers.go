@@ -86,16 +86,6 @@ func TowerBoardFromLines(input [][]int) (*TowerBoard, error) {
 	return &b, nil
 }
 
-func (b *TowerBoard) Mark(c Coord, v int) (bool, error) {
-	res, err := b.Set(c, v)
-	if !res {
-		return res, err
-	}
-	b.SetDirty()
-	b.PostMark(c, v)
-	return res, err
-}
-
 func (b *TowerBoard) PostMark(c Coord, v int) (bool, error) {
 	if v == UNKNOWN {
 		return false, nil
@@ -107,6 +97,7 @@ func (b *TowerBoard) PostMark(c Coord, v int) (bool, error) {
 				continue
 			}
 			b.Disallow(neighbor, v)
+			changed = true
 		}
 	}
 	return changed, nil
@@ -224,21 +215,6 @@ func (b *TowerBoard) ObsChar(start Coord, d Delta) string {
 	return string(IntToCh(o.Count))
 }
 
-func (b *TowerBoard) Get(c Coord) int {
-	if !b.IsValid(c) {
-		return 0
-	}
-	return b.Grid[c.Y][c.X]
-}
-
-// CharAt generates a character for the specified cell in the board's grid.
-func (b *TowerBoard) CharAt(coord Coord) string {
-	if !b.IsValid(coord) {
-		return " "
-	}
-	return string(IntToCh(b.Get(coord)))
-}
-
 func (b *TowerBoard) String() string {
 	out := " "
 	for ci := 0; ci < b.W; ci++ {
@@ -279,14 +255,6 @@ func (b *TowerBoard) IsSolved() (bool, error) {
 		}
 	}
 	return true, nil
-}
-
-func (b *TowerBoard) IsRegionSolved(r []Coord) bool {
-	ns := NewNumSet(len(r))
-	for _, c := range r {
-		ns.Del(b.Get(c))
-	}
-	return ns.Size() == 0
 }
 
 // ObserverSatisfied returns false if the grid's contents are consistent with

@@ -34,6 +34,28 @@ func RectNumBoardFromNums(input [][]int) *RectNumBoard {
 	return board
 }
 
+func LinesToRegionGrid(input []string) ([]*[]Coord, [][][]*[]Coord) {
+	allRegions := make([]*[]Coord, 0)
+	regionGrid := make([][][]*[]Coord, 0)
+	regionMap := make(map[rune]*[]Coord)
+	for y, row := range input {
+		regionGrid = append(regionGrid, make([][]*[]Coord, 0, len(row)))
+		for x, ch := range row {
+			regionGrid[y] = append(regionGrid[y], make([]*[]Coord, 0))
+			region, ok := regionMap[ch]
+			if !ok {
+				r := make([]Coord, 0)
+				region = &r
+				regionMap[ch] = region
+				allRegions = append(allRegions, region)
+			}
+			*region = append(*region, Coord{x, y})
+			regionGrid[y][x] = append(regionGrid[y][x], region)
+		}
+	}
+	return allRegions, regionGrid
+}
+
 func NewRegion() []Coord {
 	return make([]Coord, 0)
 }
@@ -123,19 +145,36 @@ func (b *RectNumBoard) AllowsExactly(c Coord, nums []int) bool {
 	return b.Allowed[c.Y][c.X].EqualsSlice(nums)
 }
 
+// CharAt generates a character for the specified cell in the board's grid.
+func (b *RectNumBoard) CharAt(coord Coord) string {
+	if !b.IsValid(coord) {
+		return " "
+	}
+	return string(IntToCh(b.Get(coord)))
+}
+
 func (b *RectNumBoard) Mark(c Coord, v int) (bool, error) {
 	res, err := b.Set(c, v)
 	if !b.Inited {
 		return res, err
 	}
+	b.SetDirty()
+	b.PostMark(c, v)
+	return res, err
+}
+
+func (b *RectNumBoard) PostMark(c Coord, v int) (bool, error) {
+	changed := true
 	for _, region := range b.RegionGrid[c.Y][c.X] {
 		for _, neighbor := range *region {
 			if neighbor != c {
-				b.Disallow(neighbor, v)
+				if b.Disallow(neighbor, v) {
+					changed = true
+				}
 			}
 		}
 	}
-	return res, err
+	return changed, nil
 }
 
 func (b *RectNumBoard) Set(c Coord, v int) (bool, error) {
@@ -177,6 +216,42 @@ func (b *RectNumBoard) DisallowAll(c Coord, s Set[int]) bool {
 		if b.Allowed[c.Y][c.X].Del(k) {
 			changed = true
 		}
+	}
+	return changed
+}
+
+func (b *RectNumBoard) IsRegionSolved(r []Coord) bool {
+	ns := NewNumSet(len(r))
+	for _, c := range r {
+		ns.Del(b.Get(c))
+	}
+	return ns.Size() == 0
+}
+
+// MarkMandatory searches for cells with only one entry in Allowed and marks
+// the appropriate value. Returns true iff a change was made. The redo flag
+// repeats the loop if marking a mandatory cell eliminated entries in Allowed
+// for other cells in the same row or column. If, for example, cell (a, b) is
+// the last empty cell in its row and column, then marking (a, b) will not
+// eliminate any possibilities from other cells, and repeating the loop is not
+// necessary.
+func (b *RectNumBoard) MarkMandatory() bool {
+	changed := false
+	redo := false
+	b.EachCell(func(c Coord, v int) bool {
+		allowed := b.Allowed[c.Y][c.X]
+		if len(allowed.M) != 1 || b.Get(c) != UNKNOWN {
+			return false
+		}
+		k := allowed.GetOne()
+		_, err := b.Mark(c, k)
+		if err != nil {
+			panic(err)
+		}
+		return false
+	})
+	if redo {
+		b.MarkMandatory()
 	}
 	return changed
 }

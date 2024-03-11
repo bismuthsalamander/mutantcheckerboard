@@ -26,27 +26,7 @@ func LoadFile(fn string) ([]string, error) {
 	return lines, nil
 }
 
-func LoadIntFile(fn string) ([][]int, error) {
-	data, err := os.ReadFile(fn)
-	if err != nil {
-		return nil, err
-	}
-	lines := make([]string, 0)
-	w := 0
-	for _, txt := range strings.Split(string(data), "\n") {
-		str := strings.Trim(txt, "\r\n")
-		lines = append(lines, str)
-		if len(str) > w {
-			w = len(str)
-		}
-	}
-	for len(lines) > 0 && len(lines[0]) == 0 {
-		lines = lines[1:]
-	}
-	for len(lines) > 0 && len(lines[len(lines)-1]) == 0 {
-		lines = lines[:len(lines)-2]
-	}
-
+func LinesToIntGrid(lines []string) ([][]int, error) {
 	grid := make([][]int, 0)
 	for _, l := range lines {
 		row := make([]int, len(l))
@@ -58,7 +38,24 @@ func LoadIntFile(fn string) ([][]int, error) {
 		}
 		grid = append(grid, row)
 	}
+	return grid, nil
+}
 
+func LoadIntFile(fn string) ([][]int, error) {
+	lines, err := LoadFile(fn)
+	if err != nil {
+		return nil, err
+	}
+	w := 0
+	for _, str := range lines {
+		if len(str) > w {
+			w = len(str)
+		}
+	}
+	grid, err := LinesToIntGrid(lines)
+	if err != nil {
+		return nil, err
+	}
 	return grid, nil
 }
 
@@ -108,7 +105,18 @@ func main() {
 		fmt.Printf("Board:\n\n%s\n\nerr: %s\n", b, err)
 		s, se := b.IsSolved()
 		fmt.Printf("Solved: %v (%v)\n", s, se)
-
+	case "regions":
+		inp, err := LoadFile(*inputFilename)
+		if err != nil {
+			fmt.Printf("error loading file: %s\n", err)
+			os.Exit(-1)
+		}
+		b, err := RippleBoardFromLines(inp)
+		fmt.Printf("Board:\n\n%s\n\nerr: %s\n", b, err)
+		b.Solve()
+		fmt.Printf("Board:\n\n%s\n\nerr: %s\n", b, err)
+		s, se := b.IsSolved()
+		fmt.Printf("Solved: %v (%v)\n", s, se)
 	default:
 		fmt.Printf("unrecognized puzzle type \"%s\"\n", *puzzleType)
 		os.Exit(-1)
